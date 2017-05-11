@@ -7,7 +7,7 @@ Features
 
 - Simple libraries (3D math, job-based multithreading, memory management (ring/frame/static allocators), lexer, renderer api)
 - 3D SIMD/multithreaded software rasterizer (half-space approach, scanline available with non SIMD instructions)
-- OpenGL 4.5 renderer (AZDO techniques : sparse texture, bindless texture, buffer storage)
+- OpenGL 4.5 renderer (AZDO techniques : sparse texture, bindless texture, buffer storage, multidraw)
 - Asset packaging tool
 
 ### In Progress
