@@ -35,7 +35,7 @@ clang compiler and other platforms are not supported yet.
 
 1- launch build.bat (in the src folder)
 
-2- make sure that the asset package and the executable are in the same folder
+2- make sure that the asset package, the 'shaders' folder and the executable are in the same folder
 
 ## Keyboard shortcuts :
 - 'S' : Switch from Opengl renderer to Software renderer
@@ -43,6 +43,5 @@ clang compiler and other platforms are not supported yet.
 - '1' : Basic Mesh Sample
 - 'Q' : Toggle full screen
 
-you can find the asset package and a build version here : 
-
+you can find a build version here : 
 https://www.dropbox.com/sh/pztteq8za6nd45x/AABXQ8hMoonAclBoB-mWAyQsa?dl=0
