@@ -41,6 +41,7 @@ clang compiler and other platforms are not supported yet.
 - 'S' : Switch from Opengl renderer to Software renderer
 - '0' : Basic Scene Sample
 - '1' : Basic Mesh Sample
+- 'Q' : Toggle full screen
 
 you can find the asset package and a build version here : 
 
