@@ -38,16 +38,17 @@ struct Vertex_SSE
 
 // TODO(flo): texture bilinear sampling, gamma correction, premultipled alpha
 KH_INLINE void
-rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 diffuse_off, v4 color, Vertex_SSE vert_0, 
+rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID diffuse_id, v4 color, Vertex_SSE vert_0, 
                            Vertex_SSE vert_1, Vertex_SSE vert_2, DirectionalLight *dirlight, const u32 src_tri_count = 4)
 {
 	// NOTE(flo): we compute values (interpolants, deltas...) for our half edges function for src_tri_count triangles first
-	DataHashElement *diffuse_el = cache->hash + diffuse_off;
-	const Texture2D *diffuse = get_datas(cache, diffuse_el, Texture2D);
+	LoadedAsset loaded_diffuse = get_loaded_asset(assets, diffuse_id, AssetType_tex2d);
+	const Texture2D diffuse = loaded_diffuse.type->tex2d;
+	const u8 *diffuse_memory = loaded_diffuse.data;
 
 	u32 pitch = target->pixels.pitch;
 	u32 target_w = target->pixels.w;
-	u32 src_pitch = diffuse->width * diffuse->bytes_per_pixel;
+	u32 src_pitch = diffuse.width * diffuse.bytes_per_pixel;
 
 	__m128 one_SSE = _mm_set1_ps(1.0f);
 	__m128 zero_SSE = _mm_set1_ps(0.0f);
@@ -60,10 +61,10 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 	__m128i w_SSE = _mm_set1_epi32(target->pixels.w - 1);
 	__m128i h_SSE = _mm_set1_epi32(target->pixels.h - 1);
 
-	__m128 w_m1 = _mm_set1_ps((f32)(diffuse->width - 1));
-	__m128 h_m1 = _mm_set1_ps((f32)(diffuse->height - 1));
-	__m128i t_pitch = _mm_set1_epi32((diffuse->bytes_per_pixel * diffuse->width));
-	__m128i t_bpp = _mm_set1_epi32(diffuse->bytes_per_pixel);
+	__m128 w_m1 = _mm_set1_ps((f32)(diffuse.width - 1));
+	__m128 h_m1 = _mm_set1_ps((f32)(diffuse.height - 1));
+	__m128i t_pitch = _mm_set1_epi32((diffuse.bytes_per_pixel * diffuse.width));
+	__m128i t_bpp = _mm_set1_epi32(diffuse.bytes_per_pixel);
 
 	__m128i mask_ff000000 = _mm_set1_epi32(0xFF000000);
 	__m128i mask_ff = _mm_set1_epi32(0xFF);
@@ -75,6 +76,13 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 	__m128 color_b = _mm_set1_ps(color.b);
 	__m128 color_a = _mm_set1_ps(color.a);
 
+	__m128 light_dir_x = _mm_set1_ps(-dirlight->dir.x);
+	__m128 light_dir_y = _mm_set1_ps(-dirlight->dir.y);
+	__m128 light_dir_z = _mm_set1_ps(-dirlight->dir.z);
+
+	__m128 ambient_coeff = _mm_set1_ps(0.1f);
+	__m128 light_coeff = _mm_set1_ps(0.9f);
+
 	__m128 depth[3] = { vert_0.pos_z, vert_1.pos_z, vert_2.pos_z };
 	__m128 one_over_z[3] = { _mm_div_ps(one_SSE, vert_0.pos_z), _mm_div_ps(one_SSE, vert_1.pos_z), 
 		_mm_div_ps(one_SSE, vert_2.pos_z) };
@@ -82,13 +90,6 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 		_mm_mul_ps(one_over_z[2], vert_2.texcoord_x) };
 	__m128 texcoord_y[3] = { _mm_mul_ps(one_over_z[0], vert_0.texcoord_y), _mm_mul_ps(one_over_z[1], vert_1.texcoord_y),
 		_mm_mul_ps(one_over_z[2], vert_2.texcoord_y) };
-
-	__m128 light_dir_x = _mm_set1_ps(-dirlight->dir.x);
-	__m128 light_dir_y = _mm_set1_ps(-dirlight->dir.y);
-	__m128 light_dir_z = _mm_set1_ps(-dirlight->dir.z);
-
-	__m128 ambient_coeff = _mm_set1_ps(0.1f);
-	__m128 light_coeff = _mm_set1_ps(0.9f);
 
 	__m128 dot_0_x = _mm_mul_ps(vert_0.normal_x, light_dir_x);
 	__m128 dot_0_y = _mm_mul_ps(vert_0.normal_y, light_dir_y);
@@ -531,7 +532,9 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 					{
 						__m128 w_mask_ps = _mm_castsi128_ps(w_mask_0);
 						__m128 new_depth = _mm_or_ps(_mm_and_ps(w_mask_ps, d_row_0), _mm_andnot_ps(w_mask_ps, original_d_0)); 
+
 						_mm_store_ps(d_0, new_depth);
+
 						__m128 persp = _mm_div_ps(one_SSE, z_row_0);
 						__m128 clampu = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, _mm_mul_ps(u_row_0, persp)));
 						__m128 clampv = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, _mm_mul_ps(v_row_0, persp)));
@@ -540,13 +543,13 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 						__m128i src_mem_off = _mm_add_epi32(_mm_mullo_epi32(src_x, t_bpp), _mm_mullo_epi32(src_y, t_pitch));
 
 						// TODO(flo): linear blend between texels here! (we certainly need to load more from our u and v coordinates)
-						u8 *t_mem_0 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[3];
-						u8 *t_mem_1 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[2];
-						u8 *t_mem_2 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[1];
-						u8 *t_mem_3 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[0];
+						u8 *t_mem_0 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[3];
+						u8 *t_mem_1 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[2];
+						u8 *t_mem_2 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[1];
+						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse->bytes_per_pixel == 1)
+						if(diffuse.bytes_per_pixel == 1)
 						{
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
@@ -554,14 +557,14 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
 						}
-						else if(diffuse->bytes_per_pixel == 3)
+						else if(diffuse.bytes_per_pixel == 3)
 						{
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
 						}
 						else
 						{
-							kh_assert(diffuse->bytes_per_pixel == 4);
+							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
 
@@ -620,13 +623,13 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 						__m128i src_x = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(clampu, w_m1), half_SSE));
 						__m128i src_y = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(clampv, h_m1), half_SSE));
 						__m128i src_mem_off = _mm_add_epi32(_mm_mullo_epi32(src_x, t_bpp), _mm_mullo_epi32(src_y, t_pitch));
-						u8 *t_mem_0 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[3];
-						u8 *t_mem_1 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[2];
-						u8 *t_mem_2 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[1];
-						u8 *t_mem_3 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[0];
+						u8 *t_mem_0 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[3];
+						u8 *t_mem_1 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[2];
+						u8 *t_mem_2 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[1];
+						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse->bytes_per_pixel == 1)
+						if(diffuse.bytes_per_pixel == 1)
 						{
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
@@ -634,14 +637,14 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
 						}
-						else if(diffuse->bytes_per_pixel == 3)
+						else if(diffuse.bytes_per_pixel == 3)
 						{
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
 						}
 						else
 						{
-							kh_assert(diffuse->bytes_per_pixel == 4);
+							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
 
@@ -700,13 +703,13 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 						__m128i src_x = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(clampu, w_m1), half_SSE));
 						__m128i src_y = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(clampv, h_m1), half_SSE));
 						__m128i src_mem_off = _mm_add_epi32(_mm_mullo_epi32(src_x, t_bpp), _mm_mullo_epi32(src_y, t_pitch));
-						u8 *t_mem_0 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[3];
-						u8 *t_mem_1 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[2];
-						u8 *t_mem_2 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[1];
-						u8 *t_mem_3 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[0];
+						u8 *t_mem_0 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[3];
+						u8 *t_mem_1 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[2];
+						u8 *t_mem_2 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[1];
+						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse->bytes_per_pixel == 1)
+						if(diffuse.bytes_per_pixel == 1)
 						{
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
@@ -714,14 +717,14 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
 						}
-						else if(diffuse->bytes_per_pixel == 3)
+						else if(diffuse.bytes_per_pixel == 3)
 						{
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
 						}
 						else
 						{
-							kh_assert(diffuse->bytes_per_pixel == 4);
+							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
 
@@ -779,13 +782,13 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 						__m128i src_x = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(clampu, w_m1), half_SSE));
 						__m128i src_y = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(clampv, h_m1), half_SSE));
 						__m128i src_mem_off = _mm_add_epi32(_mm_mullo_epi32(src_x, t_bpp), _mm_mullo_epi32(src_y, t_pitch));
-						u8 *t_mem_0 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[3];
-						u8 *t_mem_1 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[2];
-						u8 *t_mem_2 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[1];
-						u8 *t_mem_3 = (u8 *)diffuse->memory + src_mem_off.m128i_i32[0];
+						u8 *t_mem_0 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[3];
+						u8 *t_mem_1 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[2];
+						u8 *t_mem_2 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[1];
+						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse->bytes_per_pixel == 1)
+						if(diffuse.bytes_per_pixel == 1)
 						{
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
@@ -793,14 +796,14 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
 						}
-						else if(diffuse->bytes_per_pixel == 3)
+						else if(diffuse.bytes_per_pixel == 3)
 						{
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
 						}
 						else
 						{
-							kh_assert(diffuse->bytes_per_pixel == 4);
+							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
 
@@ -880,7 +883,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, DataCache *cache, u32 di
 
 // TODO(flo): clipping
 inline void
-rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *zbuffer, Vertex_PNU vert_0, Vertex_PNU vert_1, Vertex_PNU vert_2, v4 color, const Texture2D *diffuse)
+rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *zbuffer, Vertex_PNU vert_0, Vertex_PNU vert_1, Vertex_PNU vert_2, v4 color, const Texture2D *diffuse, const u8 *diffuse_memory)
 {
 	// NOTE(flo) : triangle area = half of magnitude of the 2D cross product
 	// we just need to check if the area is positive or negative so we juste compute
@@ -1129,7 +1132,7 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 				u32 *dst_pixel = (u32 *)dst;
 				i32 src_x = (i32)((u * z) * (f32)(diffuse->width - 1) + 0.5f);
 				i32 src_y = (i32)((v * z) * (f32)(diffuse->height - 1) + 0.5f);
-				u8* src = (u8 *)diffuse->memory + src_x * diffuse->bytes_per_pixel +
+				u8* src = (u8 *)diffuse_memory + src_x * diffuse->bytes_per_pixel +
 				src_y * src_pitch;
 				u32 src_pixel = (0xFF << 24 | src[2] << 16 | src[1] << 8 | src[0] << 0);
 				*dst_pixel = src_pixel;
@@ -1188,7 +1191,7 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 				u32 *dst_pixel = (u32 *)dst;
 				i32 src_x = (i32)((u * z) * (f32)(diffuse->width - 1) + 0.5f);
 				i32 src_y = (i32)((v * z) * (f32)(diffuse->height - 1) + 0.5f);
-				u8* src = (u8 *)diffuse->memory + src_x * diffuse->bytes_per_pixel +
+				u8* src = (u8 *)diffuse_memory + src_x * diffuse->bytes_per_pixel +
 				src_y * src_pitch;
 				u32 src_pixel = (0xFF << 24 | src[2] << 16 | src[1] << 8 | src[0] << 0);
 				// u32 *src_pixel = (u32 *)src;
@@ -1216,34 +1219,18 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 }
 
 KH_INTERN void
-clear_pixels_buffer(SoftwarePixelsBuffer *target, v4 color, u32 min_y, u32 max_y)
+clear_pixels_buffer(SoftwarePixelsBuffer *target, u32 color, u32 start, u32 end)
 {
-	color *= 255.0f;
-	u32 final_color = ((kh_round_f32_to_u32(color.a) << 24) |
-		(kh_round_f32_to_u32(color.r) << 16) |
-		(kh_round_f32_to_u32(color.g) << 8) |
-		(kh_round_f32_to_u32(color.b) << 0));
-	u32 pitch = target->w;
-	u32 *row = (u32 *)target->memory + min_y * pitch;
-	__m128i *pixels = (__m128i *)row;
-	__m128i out = _mm_set1_epi32(final_color);
-	for(u32 y = min_y; y < max_y; ++y)
-	{
-		for(u32 x = 0; x < (u32)target->w; x += 4)
-		{
-			_mm_store_si128((__m128i *)pixels++, out);
-		}
+	u32 *pixels = (u32 *)target->memory + start;
+	for(u32 i = start; i < end; ++i) {
+		*pixels++ = color;
 	}
 }
 
 KH_INLINE void
-clear_depth_buffer(SoftwareDepthBuffer *zbuffer, u32 start, u32 end)
-{
-	__m128 max_ps = _mm_set1_ps(F32_MAX);
+clear_depth_buffer(SoftwareDepthBuffer *zbuffer, u32 start, u32 end) {
 	f32 *dst = zbuffer->memory + start;
-	for(u32 depth_i = start; depth_i < end; depth_i += 4)
-	{
-		_mm_store_ps(dst, max_ps);
-		dst += 4;
+	for(u32 i = start; i < end; i++) {
+		*dst++ = F32_MAX;
 	}
 }

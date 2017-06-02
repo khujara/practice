@@ -15,7 +15,8 @@ inline v3
 kh_vec3(v2 xy, f32 z)
 {
 	v3 res;
-	res.xy = xy;
+	res.x = xy.x;
+	res.y = xy.y;
 	res.z = z;
 	return(res);
 }

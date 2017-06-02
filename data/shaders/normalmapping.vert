@@ -55,7 +55,7 @@ void main()
 	vec4 tangent = tr[in_drawid].model * vec4(in_tangent, 0.0);
 	vec4 bitangent = tr[in_drawid].model * vec4(in_bitangent, 0.0);
 
-	vec3 frag_pos = vec3(tr[in_drawid].model * vec4(in_pos, 1.0));
+	vec3 frag_pos = wld_pos.xyz;
 
 	vs_out.TBN = mat3(normalize(tangent.xyz), normalize(bitangent.xyz), normalize(normal.xyz));
 	vs_out.wld_pos = wld_pos;

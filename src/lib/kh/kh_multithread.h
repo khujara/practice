@@ -127,7 +127,7 @@ interlocked_compare_exchange_u32(u32 volatile *val, u32 new_val, u32 expected)
 #endif //MSVC_VER
 
 KH_INTERN TaskWithMemory *
-begin_sched_TaskWithMemory(TaskWithMemory *task_arr, u32 count)
+begin_sched_task_with_memory(TaskWithMemory *task_arr, u32 count)
 {
 	TaskWithMemory *res = 0;
 

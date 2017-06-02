@@ -7,41 +7,54 @@ Features
 
 - Simple libraries (3D math, job-based multithreading, memory management (ring/frame/static allocators), lexer, renderer api)
 - 3D SIMD/multithreaded software rasterizer (half-space approach, scanline available with non SIMD instructions)
-- OpenGL 4.5 renderer (AZDO techniques : sparse texture, bindless texture, buffer storage, multidraw)
+- OpenGL 4.5 renderer 
+	- AZDO techniques : sparse texture, bindless texture, texture arrays, buffer storage, multidraw
+	- Shadow mapping
+	- Skybox
+	- Normal mapping
+	- Phong Lighting
 - Asset packaging tool
 
 ### In Progress
 
 - Animation (FK/IK) system
 - Memory library improvements (more allocators : general purpose (ft LRU), linked/free list (pool) allocator, buddy memory)
+
+### Future plans
+
 - Math visualization tool
-- Raytracer
 - PBR rendering
-
-### Future
-
+- Raytracer
 - Scene graph and spatial partitioning
 - Fluid simulation
 - Collision Detection (GJK)
 
-Building
+Build and Requirements
 ===
 
-build with Microsoft Visual Studio 14.0 for Windows
+### Requirements
 
-clang compiler and other platforms are not supported yet.
+OpenGL 4.5  
+64 bits Microsoft Windows  
+Microsoft Visual Studio 14.0 C++ compiler  
 
-### Procedure
+### Support plans :
 
-1- launch build.bat (in the src folder)
+OpenGL 3.1  
+Vulkan  
+Clang++ compiler  
+other 64 bits OS with SDL  
 
-2- make sure that the asset package, the 'shaders' folder and the executable are in the same folder
+### Building
+
+1- cd src, build.bat
+2- make sure that the asset package (link below), the 'shaders' folder and the executable are in the same directory
 
 ## Keyboard shortcuts :
-- 'S' : Switch from Opengl renderer to Software renderer
+- 'S' : Switch from OpenGL 4.5 renderer to Software renderer
+- 'Q' : Toggle full screen
 - '0' : Basic Scene Sample
 - '1' : Basic Mesh Sample
-- 'Q' : Toggle full screen
 
 you can find a build version here : 
 https://www.dropbox.com/sh/pztteq8za6nd45x/AABXQ8hMoonAclBoB-mWAyQsa?dl=0

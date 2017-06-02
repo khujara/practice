@@ -253,11 +253,11 @@ look_at_matrix_lh(v3 cam_pos, v3 target_pos, v3 up_axis)
 }
 
 inline b32
-inside_view_frustum(v3 pos, f32 w)
+inside_view_frustum(v4 pos)
 {
-	b32 res = ((kh_abs_f32(pos.x) <= kh_abs_f32(w)) &&
-		(kh_abs_f32(pos.y) <= kh_abs_f32(w)) &&
-		(kh_abs_f32(pos.z) <= kh_abs_f32(w)));
+	b32 res = ((kh_abs_f32(pos.x) <= kh_abs_f32(pos.w)) &&
+		(kh_abs_f32(pos.y) <= kh_abs_f32(pos.w)) &&
+		(kh_abs_f32(pos.z) <= kh_abs_f32(pos.w)));
 	return(res);
 }
 
@@ -280,7 +280,7 @@ project_position(mat4 mvp, v3 pos)
 inline v3
 project_normal(mat4 wld_mat, v3 normal)
 {
-	v3 res = kh_normalize_v3(mul_normal(wld_mat, normal));
+	v3 res = kh_normalize_v3(kh_mul_mat4_dir(wld_mat, normal));
 	return(res);
 }
 
@@ -296,7 +296,8 @@ from_mvp_to_screen_space(v4 pos, f32 half_w, f32 half_h)
 
 	f32 inv_z = kh_safe_ratio1_f32(1.0f, res.z);
 
-	res.xy = res.xy * inv_z;
+	res.x = res.x * inv_z;
+	res.y = res.y * inv_z;
 
 	return(res);
 }

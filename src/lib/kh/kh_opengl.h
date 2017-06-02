@@ -1,23 +1,5 @@
 #ifndef KHJR_OPENGL_RENDER_H
 
-enum PassType {
-	Pass_shadow,
-	Pass_render_3d_scene,
-	Pass_skybox,
-	Pass_blit,
-	Pass_count,
-};
-
-GL_DEBUG_CALLBACK(OpenGLDebugCallback)
-{
-    if(severity == GL_DEBUG_SEVERITY_MEDIUM || severity == GL_DEBUG_SEVERITY_HIGH) {
-    	GLenum err = glGetError();	
-    	char *err_mess = (char *)message;
-    	kh_assert(!"OpenGL Error encountered");
-    }
-
-}
-
 typedef struct DrawElementsIndirectCommand {
 	GLuint count;
 	GLuint primCount;
@@ -46,7 +28,7 @@ struct OglTexture2D {
 };
 
 struct OglTexture2DContainer {
-	u32 index;
+	u32 arr_index;
 	GLuint name;
 	GLuint64 bindless;
 	u32 slices_count;
@@ -79,6 +61,8 @@ struct OglMaterial {
 	u32 render_count;
 	u32 cmd_count;
 	u32 cmd_offset;
+	// TODO(flo): use this to bindbufferbase our texture adresses
+	GLuint buffer;
 	VertexFormat format;
 };
 
@@ -106,6 +90,9 @@ struct OglVertexBuffer {
 	u32 attrib_offset;
 	u32 attrib_stride;
 
+	b32 skinned;
+	u32 anim_offset;
+
 	// @TODO(flo) : we'll need this eventually?
 	// u32 ibo_max;
 	// u32 vbo_max;
@@ -123,14 +110,13 @@ struct OglExtension {
 	char *name;
 	OglExtension *next_in_hash;
 };
+
 struct OglExtensionsHash {
 	StackAllocator buffer;
 	OglExtension *hash[MAX_HASH_GL_EXTENSIONS];
-
 	u32 empty;
 	u32 collision_count;
 	u32 count;
-
 };
 
 struct OglSkybox {
@@ -143,57 +129,6 @@ struct OglLight {
 	GLuint framebuffer;
 	GLuint texture_buffer;
 	GLuint transform_buffer;
-};
-
-#define MAX_TEXTURES 64
-#define MAX_MESHES 64
-#define MAX_TEXTURE_BINDINGS 16
-#define MAX_DRAWCMD_PER_FRAME 8
-struct OglState {
-	b32 bindless;
-	b32 sparse;
-	b32 zprepass_enabled;
-
-	OglCameraTransform *map_cam_transform;
-	OglTransform *map_transforms;
-	u32 *map_drawcmdsids;
-	u32 *map_drawids;
-
-	DrawElementsIndirectCommand cmds[MAX_DRAWCMD_PER_FRAME];
-
-	GLuint color_buffer;
-	GLuint cmds_buffer;
-
-	OglTexture2D shadow_map;
-
-	b32 has_skybox;
-	OglSkybox skybox;
-
-	u32 light_count;
-	OglLight lights[MAX_LIGHTS];
-
-	// TODO(flo): if we need to have more texture container thant TEXTURE_BINDINGS (which shoudl be retrive from opengl)
-	// we need to handle this case.
-	u32 texture_container_count;
-	GLuint texture_container_names[MAX_TEXTURE_BINDINGS];	
-	OglTexture2DContainer texture_containers[MAX_TEXTURE_BINDINGS];
-
-	u32 texture_count;
-	OglTexture2D textures[MAX_TEXTURES];
-
-	u32 mesh_count;
-	OglTriangleMesh meshes[MAX_MESHES];
-	OglVertexBuffer vertex_buffers[VertexFormat_count];
-
-	u32 used_material_count;
-	u32 used_materials[Material_count];
-	OglMaterial materials[Material_count];
-
-	OglExtensionsHash exts;
-
-	OglTexture2D target;
-
-	OglPass ogl_pass[Pass_count];
 };
 
 KH_INTERN void
@@ -216,12 +151,6 @@ WIN32DEBUG_opengl_get_prog_log(GLuint prog) {
 		glGetProgramInfoLog(prog, sizeof(info_log), NULL, info_log);
 		OutputDebugStringA(info_log);
 	}
-}
-
-KH_INTERN void
-ogl_assert() {
-	GLenum er = glGetError();
-	kh_assert(!er);
 }
 
 KH_INTERN GLuint
@@ -322,6 +251,9 @@ KH_INTERN GLchar *
 ogl_load_shader_from_file(char *header, u32 header_size, char *filename, StackAllocator *memstack) {
 
 	FileHandle shader = g_platform.open_file(filename, memstack, FileAccess_read, FileCreation_only_open);
+
+	kh_assert(!shader.error)
+
 	u32 size = g_platform.get_file_size(&shader);
 
 	u32 total_size = header_size + size + 1;
@@ -361,36 +293,39 @@ ogl_indices_buffer_data(u32 count) {
 }
 
 KH_INTERN void
-ogl_init_vertex_buffer(OglVertexBuffer *vert_buffer, u32 vertices_count, u32 vertex_size, u32 tri_count) {
+ogl_init_vertex_buffer(OglVertexBuffer *vert_buffer, u32 vertex_size, u32 vertices_count, u32 tri_count, 
+                       b32 skinned, u32 anim_offset) {
 	vert_buffer->mesh_count    = 0;
 	vert_buffer->ibo_at        = 0;
 	vert_buffer->vbo_at        = 0;
 	vert_buffer->verts         = ogl_vertices_buffer_data(vertices_count * vertex_size);
 	vert_buffer->inds          = ogl_indices_buffer_data(tri_count);
 	vert_buffer->attrib_stride = vertex_size;
-	vert_buffer->attrib_offset = 0;
 	// TODO(flo): user specified for offset
+	vert_buffer->attrib_offset = 0;
+	vert_buffer->skinned	   = skinned;
+	vert_buffer->anim_offset   = anim_offset;
 }
 
 KH_INTERN void
-ogl_add_vertices_to_buffer_data(VerticesBufferData *buffer, TriangleMesh *mesh) {
+ogl_add_vertices_to_buffer_data(VerticesBufferData *buffer, TriangleMesh *mesh, u8 *data) {
 	u32 size = mesh->vert_c * mesh->vertex_size;
 	// @TODO(flo): linked list of vertex buffer if we're out of size
 	kh_assert(buffer->offset + size <= buffer->total_size);
-	glNamedBufferSubData(buffer->name, buffer->offset, size, mesh->memory);
+	glNamedBufferSubData(buffer->name, buffer->offset, size, data);
 	buffer->offset += size;
 }
 
 KH_INTERN void
-ogl_add_indices_to_buffer_data(IndicesBufferData *buffer, TriangleMesh *mesh) {
+ogl_add_indices_to_buffer_data(IndicesBufferData *buffer, TriangleMesh *mesh, u8 *data) {
 	u32 size = mesh->tri_c * 3 * sizeof(u32);
 	kh_assert(buffer->offset + size <= buffer->total_size);
-	glNamedBufferSubData(buffer->name, buffer->offset, size, mesh->memory + mesh->indices_offset);
+	glNamedBufferSubData(buffer->name, buffer->offset, size, data + mesh->indices_offset);
 	buffer->offset += size;
 }
 
 KH_INTERN void
-ogl_add_triangle_mesh_memory_to_vbo(OglTriangleMesh *oglmesh, OglVertexBuffer *buffer, TriangleMesh *mesh) {
+ogl_add_triangle_mesh_memory_to_vbo(OglTriangleMesh *oglmesh, OglVertexBuffer *buffer, TriangleMesh *mesh, u8 *data) {
 	oglmesh->ind_count = mesh->tri_c * 3;
 	oglmesh->vbo_offset = buffer->vbo_at;
 	buffer->vbo_at += mesh->vert_c;
@@ -398,38 +333,34 @@ ogl_add_triangle_mesh_memory_to_vbo(OglTriangleMesh *oglmesh, OglVertexBuffer *b
 	buffer->ibo_at += mesh->tri_c * 3;
 	oglmesh->draw_id = buffer->mesh_count++;
 
-	ogl_add_vertices_to_buffer_data(&buffer->verts, mesh);
-	ogl_add_indices_to_buffer_data(&buffer->inds, mesh);
+	ogl_add_vertices_to_buffer_data(&buffer->verts, mesh, data);
+	ogl_add_indices_to_buffer_data(&buffer->inds, mesh, data);
 }
 
 KH_INTERN void
-ogl_create_texture_2D(OglTexture2D *ogltex, Texture2D *tex, b32 bindless, GLenum format) {
+ogl_create_texture_2D(OglTexture2D *ogltex, Texture2D *tex, u8 *data, b32 bindless, GLenum format) {
 	glCreateTextures(GL_TEXTURE_2D, 1, &ogltex->name);
 	glTextureParameteri(ogltex->name, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTextureParameteri(ogltex->name, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTextureParameteri(ogltex->name, GL_TEXTURE_WRAP_S, GL_CLAMP);
 	glTextureParameteri(ogltex->name, GL_TEXTURE_WRAP_T, GL_CLAMP);
 	glTextureStorage2D(ogltex->name, 1, GL_RGB8, tex->width, tex->height);
-	glTextureSubImage2D(ogltex->name, 0, 0, 0, tex->width, tex->height, GL_BGR, GL_UNSIGNED_BYTE, tex->memory);
+	glTextureSubImage2D(ogltex->name, 0, 0, 0, tex->width, tex->height, GL_BGR, GL_UNSIGNED_BYTE, data);
 	if(bindless) 	{
 		ogltex->bindless = glGetTextureHandleARB(ogltex->name);
 	}
 }
 
-KH_INTERN OglTexture2DContainer *
-ogl_create_texture_2D_container(OglState *ogl, u32 slices_count, u32 mipmaps_count, GLenum internalformat, u32 w, u32 h) {
-	kh_assert(ogl->texture_container_count < MAX_TEXTURE_BINDINGS);
-	u32 id = ogl->texture_container_count++;
-	OglTexture2DContainer *res = ogl->texture_containers + id;
+KH_INLINE OglTexture2DContainer
+ogl_create_texture_2D_container(u32 slices_count, u32 mipmaps_count, GLenum internalformat, u32 w, u32 h, u32 arr_index, b32 sparse, b32 bindless) {
+	OglTexture2DContainer res;
 
 	GLuint name;
 	glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &name);
 
-	ogl->texture_container_names[id] = name;
+	res.sparse = sparse;
 
-	res->sparse = ogl->sparse;
-
-	if(ogl->sparse) {
+	if(sparse) {
 		glTextureParameteri(name, GL_TEXTURE_SPARSE_ARB, GL_TRUE);
 
 		GLint index_count = 0, xsize = 0, ysize = 0, zsize = 0;
@@ -455,12 +386,12 @@ ogl_create_texture_2D_container(OglState *ogl, u32 slices_count, u32 mipmaps_cou
 			glTextureParameteri(name, GL_VIRTUAL_PAGE_SIZE_INDEX_ARB, best_index);
 		} else {
 			glTextureParameteri(name, GL_TEXTURE_SPARSE_ARB, GL_FALSE);
-			res->sparse = false;
+			res.sparse = false;
 		}
 	}
 
 	GLint max_slices;
-	if(res->sparse) {
+	if(res.sparse) {
 		glGetIntegerv(GL_MAX_SPARSE_ARRAY_TEXTURE_LAYERS_ARB, &max_slices);
 	} else {
 		glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &max_slices);
@@ -473,20 +404,20 @@ ogl_create_texture_2D_container(OglState *ogl, u32 slices_count, u32 mipmaps_cou
 	glTextureParameteri(name, GL_TEXTURE_WRAP_T, GL_CLAMP);
 	glTextureStorage3D(name, mipmaps_count, internalformat, w, h, slices_count);
 
-	res->name = name;
-	res->bindless = 0;
-	if(ogl->bindless) {
-		res->bindless = glGetTextureHandleARB(name);
-		glMakeTextureHandleResidentARB(res->bindless);
+	res.name = name;
+	res.bindless = 0;
+	if(bindless) {
+		res.bindless = glGetTextureHandleARB(name);
+		glMakeTextureHandleResidentARB(res.bindless);
 	}
 
-	res->index = id;
-	res->slices_count = 0;
-	res->slices_max = slices_count;
-	res->mipmaps_count = mipmaps_count;
-	res->format = internalformat;
-	res->width = w;
-	res->height = h;
+	res.arr_index = arr_index;
+	res.slices_count = 0;
+	res.slices_max = slices_count;
+	res.mipmaps_count = mipmaps_count;
+	res.format = internalformat;
+	res.width = w;
+	res.height = h;
 
 	return(res);
 }
@@ -508,7 +439,7 @@ ogl_set_texture_2d_to_container(OglTexture2DContainer *container, OglTexture2D *
 	tex->bindless = container->bindless;
 	tex->name = container->name;
 	tex->slice = slice;
-	tex->container_id = container->index;
+	tex->container_id = container->arr_index;
 	if(container->sparse) {
 		ogl_commit_texture(container, tex->slice, GL_TRUE);
 	}
@@ -521,7 +452,8 @@ ogl_add_texture_to_container(OglTexture2DContainer *container, OglTexture2D *tex
 
 // TODO(flo): remove this, @TEMP
 KH_INTERN void
-ogl_set_texture_2d_to_container(OglTexture2DContainer *container, OglTexture2D *ogltex, Texture2D *tex, GLenum format, u32 slice) {
+ogl_set_texture_2d_to_container(OglTexture2DContainer *container, OglTexture2D *ogltex, Texture2D *tex, u8 *data, 
+                                GLenum format, u32 slice) {
 	kh_assert(slice < container->slices_max);
 	kh_assert(tex->width == container->width);
 	kh_assert(tex->height == container->height);
@@ -529,7 +461,7 @@ ogl_set_texture_2d_to_container(OglTexture2DContainer *container, OglTexture2D *
 	ogltex->bindless = container->bindless;
 	ogltex->name = container->name;
 	ogltex->slice = slice;
-	ogltex->container_id = container->index;
+	ogltex->container_id = container->arr_index;
 	// TODO(flo): specify levels, xoffset and yoffset in our Texture2D
 	if(container->sparse) {
 		ogl_commit_texture(container, ogltex->slice, GL_TRUE);
@@ -549,14 +481,15 @@ ogl_set_texture_2d_to_container(OglTexture2DContainer *container, OglTexture2D *
 	glTextureSubImage3D(container->name, 0, 0, 0, ogltex.slice, tex->data.width, tex->data.height, 1, format, GL_UNSIGNED_BYTE, (void *)(umm)offset);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 #else
-	glTextureSubImage3D(container->name, 0, 0, 0, ogltex->slice, tex->width, tex->height, 1, format, GL_UNSIGNED_BYTE, tex->memory);
+	glTextureSubImage3D(container->name, 0, 0, 0, ogltex->slice, tex->width, tex->height, 1, format, GL_UNSIGNED_BYTE, data);
 #endif
 
 }
 
 KH_INTERN void
-ogl_add_texture_2D_to_container(OglTexture2DContainer *container, OglTexture2D *ogltex, Texture2D *tex, GLenum format) {
-	ogl_set_texture_2d_to_container(container, ogltex, tex, format, container->slices_count++);
+ogl_add_texture_2D_to_container(OglTexture2DContainer *container, OglTexture2D *ogltex, Texture2D *tex, u8 *data,
+                                GLenum format) {
+	ogl_set_texture_2d_to_container(container, ogltex, tex, data, format, container->slices_count++);
 }
 
 #define KHJR_OPENGL_RENDER_H

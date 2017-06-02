@@ -50,5 +50,7 @@ typedef double f64;
 #define gigabytes(x) gb(x)
 #define terabytes(x) tb(x)
 
+#define INVALID_U32_OFFSET 0xFFFFFFFF
+
 #define KH_TYPES_H
 #endif

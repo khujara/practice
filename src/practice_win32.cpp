@@ -7,20 +7,19 @@ Platform g_platform;
 
 #include <xinput.h>
 #include <gl/gl.h>
-#include "kh/kh_win32_oglext.h"
 #include "practice_win32.h"
+
+#include "kh/kh_win32_oglext.h"
+#include "kh/kh_opengl.h"
 
 #include "kh_asset_file.h"
 #include "kh_asset.h"
 #include "kh/kh_render.h"
-#include "kh_renderer_opengl.h"
 #include "kh_renderer_software.h"
 
 #include "kh_rasterizer_software.cpp"
 #include "kh_renderer_software.cpp"
 #include "kh_renderer_opengl.cpp"
-// #include "samples/kh_opengl_sample.cpp"
-// #include "samples/kh_software_rasterizer_sample.cpp"
 #include "kh_asset.cpp"
 #include "kh_asset_init.cpp"
 
@@ -141,6 +140,9 @@ win32_process_messages(win32_state *state, Input *input)
 						case 0x31 : {
 							state->new_sample = Sample_basic_mesh;
 						} break;
+						case 0x32 : {
+							state->new_sample = Sample_basic_animation;
+						} break;
 						case VK_ESCAPE : { global_isrunning = false; } break;
 					}
 				}
@@ -224,6 +226,42 @@ win32_unload_sample(win32_sample_library *sample) {
 	sample->frame_update = 0;
 }
 
+#ifdef KH_IN_DEVELOPMENT
+KH_INTERN void
+win32_load_asset_import_library(ProgramMemory *prog) {
+	char *dll_name = "kh_asset_import.dll";
+	char dll[1024];
+	ProgramPath exe_path = win32_get_program_path();
+	strings_copy(exe_path.path_len, exe_path.path, dll);
+	strings_concat(string_length(dll), dll, string_length(dll_name), dll_name, sizeof(dll), dll);
+	HMODULE lib = LoadLibrary(dll);
+	if(lib) {
+		prog->platform.load_tex2d_directly = (LoadTex2dFile *)GetProcAddress(lib, "load_tex2d_file");
+		kh_assert(prog->platform.load_tex2d_directly);
+
+		prog->platform.load_font_directly = (LoadFontFile *)GetProcAddress(lib, "load_font_file");
+		kh_assert(prog->platform.load_font_directly);
+
+		prog->platform.load_trimesh_directly = (LoadTriMeshFile *)GetProcAddress(lib, "load_trimesh_file");
+		kh_assert(prog->platform.load_trimesh_directly);
+
+		prog->platform.load_skeleton_directly = (LoadSkeletonFile *)GetProcAddress(lib, "load_skeleton_file");
+		kh_assert(prog->platform.load_skeleton_directly);
+
+		prog->platform.load_skin_directly = (LoadSkinFile *)GetProcAddress(lib, "load_skin_file");
+		kh_assert(prog->platform.load_skin_directly);
+
+		prog->platform.load_animation_directly = (LoadAnimationFile *)GetProcAddress(lib, "load_animation_file");
+		kh_assert(prog->platform.load_animation_directly);
+
+		prog->platform.init_asset_import = (InitAssetLoader *)GetProcAddress(lib, "init_asset_loader");
+		kh_assert(prog->platform.init_asset_import);
+		prog->platform.init_asset_import(&prog->platform);
+	}
+
+}
+#endif
+
 KH_INTERN void
 win32_opengl_init(HWND window)
 {
@@ -249,46 +287,33 @@ win32_opengl_init(HWND window)
 
 	win32_load_wgl_extensions();
 
-	GLint maj, min;
-	glGetIntegerv(GL_MAJOR_VERSION, &maj);
-	glGetIntegerv(GL_MINOR_VERSION, &min);
-
 	/* @NOTE(flo) : If you wish, you may delete the first context. Ultimately, though, 
 	you will always end up creating at least two contexts in any new application that uses a 
 	core profile context or needs debugging features.
 	*/
+
 	wglDeleteContext(opengl_rc);
 
-	int win32_context_attribs[] = {
+	int context_attribs_45[] = {
 		WGL_CONTEXT_MAJOR_VERSION_ARB, 4,
 		WGL_CONTEXT_MINOR_VERSION_ARB, 5,
-
 		WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB,
-		// WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB|WGL_CONTEXT_DEBUG_BIT_ARB,
-		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+		WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB|WGL_CONTEXT_DEBUG_BIT_ARB,
+		// WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
 		// WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
 		0,
 	};
 
-	// GLint test;
-	// glGetIntegerv(WGL_CONTEXT_PROFILE_MASK_ARB, &test);
-
-	HGLRC modern_opengl_rc = wglCreateContextAttribsARB(wnd_dc, 0, win32_context_attribs);
+	HGLRC modern_opengl_rc = wglCreateContextAttribsARB(wnd_dc, 0, context_attribs_45);
 	make_cur = wglMakeCurrent(wnd_dc, modern_opengl_rc);
 
-	// kh_assert(wglGetCurrentContext);
 	HGLRC cur_ogl_rc = wglGetCurrentContext();
 	kh_assert(cur_ogl_rc == modern_opengl_rc);
-
-	char *vendor = (char *)glGetString(GL_VENDOR);
-	char *renderer = (char *)glGetString(GL_RENDERER);
-	char *version = (char *)glGetString(GL_VERSION);
-	char *shading_language_version = (char *)glGetString(GL_SHADING_LANGUAGE_VERSION);
 
 	win32_load_gl_extensions();
 	if(wglSwapIntervalEXT)
 	{
-		wglSwapIntervalEXT(0);
+		wglSwapIntervalEXT(1);
 	}
 	else
 	{
@@ -328,12 +353,17 @@ reset_memory(ProgramMemory *mem, RenderManager *render, OglState *ogl) {
 	ogl_delete_light(ogl);
 }
 
-// @TODO(flo) @IMPORTANT(flo): render texture for our main menu
 int CALLBACK
 WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_show)
 {
+
+
+	/* TODO(flo): 
+		- send our update to github
+		- some basic IK implementation
+	*/
+
 	// TODO(flo): pass the dll here!
-	KH_GLOBAL LARGE_INTEGER debug_fps_counter = {};
 	LARGE_INTEGER perf_counter_freq;
 	QueryPerformanceFrequency(&perf_counter_freq);
 	f64 inv_perf_counter_freq = 1.0f / (f64)perf_counter_freq.QuadPart;
@@ -357,8 +387,11 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 			state.window_pos = { sizeof(state.window_pos) };
 			state.show_menu = false;
 			state.renderer = RendererType_opengl;
+			// state.renderer = RendererType_software;
 			state.display = DisplayType_opengl;
-			state.new_sample = Sample_basic_scene;
+			state.new_sample = Sample_basic_animation;
+			// state.new_sample = Sample_basic_scene;
+			// state.new_sample = Sample_basic_mesh;
 			state.cur_sample = Sample_none;
 
 			win32_sample_library sample = {};
@@ -411,6 +444,9 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 			memory.platform.get_file_size = win32_get_file_size;
 			memory.platform.virtual_alloc = win32_virtual_alloc;
 			memory.platform.virtual_free = win32_virtual_free;
+			#ifdef KH_IN_DEVELOPMENT
+			win32_load_asset_import_library(&memory);
+			#endif
 			g_platform = memory.platform;
 
 			win32_load_graphics_api(window);
@@ -433,10 +469,17 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 			render.height        = 1080;
 			render.commands_size = kilobytes(4);
 			render.commands      = (u8 *)VirtualAlloc(0, render.commands_size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-			DataCache cache         = init_data_cache(megabytes(512));
-			render.cache = &cache;
+			render.animators.max_count = 64;
+			render.animators.count = 0;
+			render.animators.data = (Animator *)VirtualAlloc(0, render.animators.max_count * sizeof(Animator), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+			render.bone_tr.max_count = 1024;
+			render.bone_tr.count = 0;
+			render.bone_tr.data = (mat4 *)VirtualAlloc(0, render.bone_tr.max_count * sizeof(mat4), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-			Assets *assets = load_assets_infos(memory.high_queue);
+			// NOT_IMPLEMENTED;
+			// TODO(flo): since our assets system is always loaded in the platform layer
+			// i do not think we have to return a pointer here
+			Assets *assets = load_assets_infos("datas.khjr", memory.high_queue, megabytes(256), 16);
 
 			OglState ogl = {};
 			ogl_start(&ogl, &render, assets);
@@ -458,7 +501,7 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 				work->max_x = max_clip_x;
 				work->min_y = min_clip_y;
 				work->max_y = max_clip_y;
-				work->cache = &cache;
+				work->assets = assets;
 				min_clip_y += clip_pitch;
 				max_clip_y += clip_pitch;
 
@@ -468,24 +511,29 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 				}
 			}
 
-			LARGE_INTEGER start_counter;
-			QueryPerformanceCounter(&start_counter);
-			char fps_text[64];
+			u32 render_size = render.width * render.height * sizeof(u32);
+			GLuint pixel_unpack_b;
+			glCreateBuffers(1, &pixel_unpack_b);
+			glNamedBufferData(pixel_unpack_b, render_size, 0, GL_DYNAMIC_COPY);
 			while(global_isrunning)
 			{
-				b32 reload = false;
+
+
+				Win32DebugTimer frame_time("-----------------------------START FRAME----------------------- \n");
+
 				f32 dt = target_spf;
 				input_cur_frame->dt_wheel = 0;
 
-				u64 begin = __rdtsc();
-				OutputDebugStringA("-----------------------------START FRAME----------------------- \n");
-				win32_process_messages(&state, input_cur_frame);				
+				// u64 begin = __rdtsc();
+				// OutputDebugStringA("-----------------------------START FRAME----------------------- \n");
 
-			    u64 end = __rdtsc();
-			    u64 elapsed = end - begin;
-			    char text_buff[256];
-			    _snprintf_s(text_buff, sizeof(text_buff), "win32 peek message cycle : %llu \n", elapsed);
-			    OutputDebugStringA(text_buff);
+				win32_process_messages(&state, input_cur_frame);
+
+			    // u64 end = __rdtsc();
+			    // u64 elapsed = end - begin;
+			    // char text_buff[256];
+			    // _snprintf_s(text_buff, sizeof(text_buff), "win32 peek message cycle : %llu \n", elapsed);
+			    // OutputDebugStringA(text_buff);
 
 			    POINT mouse_p;
 			    GetCursorPos(&mouse_p);
@@ -512,7 +560,7 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 
 			    for(u32 b_i = 0; b_i < MouseButton_count; ++b_i)
 			    {
-			    	input_cur_frame->mouse_buttons[b_i].down = input_last_frame->mouse_buttons[b_i].down;
+			    	input_cur_frame->mouse_buttons[b_i] = input_last_frame->mouse_buttons[b_i];
 			    	input_cur_frame->mouse_buttons[b_i].down_count = 0;
 			    	win32_button_event(&input_cur_frame->mouse_buttons[b_i], GetKeyState(win_mouse_id[b_i]) & (1 << 15));
 			    }
@@ -543,11 +591,16 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 
 			    switch(state.renderer) {
 			    	case RendererType_software : {
-					    software_render(&back_buff, &render, &high_queue, works, work_count);
-					    glTextureSubImage3D(ogl.target.name, 0, 0, 0, ogl.target.slice, render.width, render.height, 1, GL_BGRA, GL_UNSIGNED_BYTE, back_buff.pixels.memory);
+					    software_render(&back_buff, assets, &render, &high_queue, works, work_count);
+						// glNamedBufferData(pixel_unpack_b, render_size, back_buff.pixels.memory, GL_STREAM_DRAW);
+						glNamedBufferSubData(pixel_unpack_b, 0, render_size, back_buff.pixels.memory);
+						glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pixel_unpack_b);
+						glTextureSubImage3D(ogl.target.name, 0, 0, 0, ogl.target.slice, render.width, render.height, 1, GL_BGRA, GL_UNSIGNED_BYTE, 0);
+						glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
 			    	} break;
 			    	case RendererType_opengl : {
-					    ogl_render(&ogl, &render);
+					    ogl_render(&ogl, &render, assets);
 			    	} break;
 			    	default : {
 			    		NOT_IMPLEMENTED;
@@ -564,13 +617,6 @@ WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR cmd_line, int cmd_sho
 			    		NOT_IMPLEMENTED;
 			    	} break;
 			    }
- 
-				LARGE_INTEGER end_counter;
-				QueryPerformanceCounter(&end_counter);
-				f32 us = win32_get_seconds_elapsed(start_counter, end_counter, inv_perf_counter_freq);
-				stbsp_sprintf(fps_text, "%fms, %ffps \n", us * 1000.0f, 1.0f / us);
-				OutputDebugStringA(fps_text);
-				start_counter = end_counter;
 			}
 		}
 	}

@@ -18,23 +18,7 @@ typedef union v3
 {
 	struct
 	{
-		union
-		{
-			struct
-			{
-				f32 x, y;
-			};
-			v2 xy;
-		};
-		f32 z;
-	};
-	struct
-	{
-		f32 r,g,b;
-	};
-	struct
-	{
-		f32 u,v,w;
+		f32 x,y,z;
 	};
 	f32 e[3];
 } v3;
@@ -43,34 +27,13 @@ typedef union v4
 {
 	struct
 	{
-			union
-			{
-				v3 xyz;
-				struct
-				{
-						f32 x,y,z;
-				};
-			};
-			f32 w;
-	};
-	struct
-	{
-		v2 xy;
-		v2 zw;
-	};
-	struct
-	{
-		union
-		{
-			v3 rgb;
-			struct
-			{
-					f32 r,g,b;
-			};
-		};
-		f32 a;
+		f32 x,y,z,w;
 	};
 	f32 e[4];
+	struct
+	{
+		f32 r,g,b,a;
+	};
 } v4;
 
 typedef union v2i
@@ -237,7 +200,7 @@ typedef struct bit_scan
 typedef struct Transform_SQT {
 	v3 pos;
 	quat rot;
-	// v3 scale;
+	v3 scale;
 }Transform_SQT;
 
 #define PI32 3.14159265354897932384626433837959f
@@ -261,6 +224,8 @@ typedef struct Transform_SQT {
 #define SIN_90 1.0f;
 
 // TODO(flo): we need to define our math functions here
+KH_INLINE mat4 from_quat_to_mat4(quat rot);
+
 
 #define KH_MATHDEF_H
 #endif

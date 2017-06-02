@@ -89,6 +89,11 @@ kh_exchange_significant_bits(u32 val)
 ---------------------------
 */
 
+inline f32
+kh_mod_f32(f32 a, f32 b) {
+	f32 res = fmodf(a, b);
+	return(res);
+}
 
 inline i32
 kh_signof_i32(i32 val)
@@ -115,6 +120,12 @@ inline f32
 kh_abs_f32(f32 val)
 {
 	f32 res = fabsf(val);
+	return(res);
+}
+
+inline f64
+kh_abs_f64(f64 val) {
+	f64 res = fabs(val);
 	return(res);
 }
 
@@ -328,6 +339,20 @@ kh_max_i32(i32 a, i32 b)
   return(res);
 }
 
+inline u32
+kh_min_u32(u32 a, u32 b)
+{
+  u32 res = (a < b) ? a : b;
+  return(res);
+}
+
+inline u32
+kh_max_u32(u32 a, u32 b)
+{
+  u32 res = (a > b) ? a : b;
+  return(res);
+}
+
 inline umm
 kh_min_umm(umm a, umm b)
 {
@@ -387,6 +412,19 @@ kh_clamp_i32(i32 min, i32 max, i32 val)
 	return(res);
 }
 
+inline f64
+kh_clamp_f64(f64 min, f64 max, f64 val) {
+	f64 res = val;
+	if(res < min) res = min;
+	if(res > max) res = max;
+	return(res);
+}
+
+inline f64
+kh_clamp01_f64(f64 val) {
+	f64 res = kh_clamp_f64(0.0, 1.0, val);
+	return(res);
+}
 
 inline f32
 kh_clamp_f32(f32 min, f32 max, f32 val)
@@ -424,6 +462,18 @@ kh_remap_f32(f32 min, f32 max, f32 t, f32 remap_min, f32 remap_max)
 		res = remap_min + normalized*(remap_max - remap_min);
 	}
 
+	return(res);
+}
+
+inline f32
+kh_remap_safe(f32 min, f32 max, f32 t, f32 remap_min, f32 remap_max) {
+	f32 res = remap_min + (((t - min) / (max -min)) * (remap_max - remap_min));
+	return(res);
+}
+
+inline f32
+kh_remap_range(f32 range, f32 t, f32 remap_range) {
+	f32 res = (t / range) * remap_range;
 	return(res);
 }
 

@@ -3,10 +3,14 @@
 #define KH_PACKAGE_SIGNATURE 0x6b686a72 // k h j r
 #define KH_PACKAGE_VER 1
 
-enum AssetFileType {
-	AssetFileType_texture_2d,
-	AssetFileType_font,
-	AssetFileType_triangle_mesh,
+enum AssetTypeKey {
+	AssetType_tex2d,
+	AssetType_font,
+	AssetType_trimesh,
+	AssetType_meshskin,
+	AssetType_skeleton,
+	AssetType_animation,
+	AssetType_uncategorized,
 };
 
 enum AssetTagKeys {
@@ -35,6 +39,11 @@ enum AssetName {
 
 	AssetName_randy_mesh,
 	AssetName_randy_mesh_tangent,
+	AssetName_randy_mesh_skinned,
+
+	AssetName_randy_skeleton,
+	AssetName_randy_skin,
+	AssetName_randy_idle,
 
 	AssetName_icosphere,
 	AssetName_terrain_test,
@@ -46,15 +55,10 @@ enum AssetName {
 };
 
 #pragma pack(push, 1)
-struct TextureID {
+struct AssetID {
 	u32 val;
 };
-struct FontID {
-	u32 val;
-};
-struct TriangleMeshID {
-	u32 val;
-};
+
 
 struct AssetFileHeader {
 	u32 signature;
@@ -80,50 +84,42 @@ struct SourceAssetType {
 	u32 one_past_last_asset;
 };
 
-struct SourceTexture2d {
-	u32 width;
-	u32 height;
-	u32 bytes_per_pixel;
-};
-
-struct SourceTriangleMesh {
-	u32 count;
-	u32 tri_count;
-	u32 interleave;
-	VertexFormat format;
-};
-
-struct SourceFontGlyph {
-	u32 code_point;
-	f32 advance_width;
-	u32 x0, x1;
-	u32 y0, y1;
-	f32 xoff, yoff;
-	//TODO(flo): for what purposes ? 
-	f32 xoff1, yoff1;
-};
-
-struct SourceFont {
-	u32 glyph_count;
-	u32 highest_codepoint;
-	f32 advance_y;
-	u32 tex_w;
-	u32 tex_h;
-	u32 tex_bytes_per_pixel;
+struct AssetType {
+	AssetTypeKey key;
+	union {
+		Texture2D tex2d;
+		Font font;
+		TriangleMesh trimesh;
+		Skeleton skeleton;
+		AnimationClip animation;
+	};
 };
 
 struct SourceAsset {
 	u64 offset;
+	u32 size;
 	u32 first_tag;
 	u32 one_past_last_tag;
-	AssetFileType format;
-	union {
-		SourceTexture2d src_texture_2d;
-		SourceFont src_font;
-		SourceTriangleMesh src_tri_mesh;
-	};
+	AssetType type;
 };
 #pragma pack(pop)
+
+struct AssetContents {
+	AssetType type;
+	void *memory;
+	u32 size;
+};
+
+struct FontParam {
+	char *fontname;
+	f32 pixels_height;
+
+	u32 max_glyph_count;
+	u32 glyph_count;
+	// TODO(flo): do we need this ????
+	// u32 *glyph_index_from_cp;
+	u32 *cp_arr;
+};
 
 #define AssetFile_H
 #endif

@@ -1,10 +1,20 @@
 #include "kh_sample_shared.h"
 
+enum MeshRendererType {
+	MeshRenderer_randy,
+	MeshRenderer_count,	
+};
+
 struct ProgramSample
 {
 	ProgramState state;
+
 	Entity randy;
+	Entity randy_2;
+
+	StackAllocator animation_mem;
 };
+
 
 Platform g_platform;
 extern "C" kh_update *
@@ -43,7 +53,7 @@ frame_update(ProgramMemory *memory, Input *input, RenderManager *render, Assets 
 		qy.z = 0.0f;
 		qy.w = kh_cos_f32(ay);
 
-		cam->dist = 2.0f;
+		cam->dist = 4.0f;
 
 		cam->tr.rot = (qy * qx);
 		cam->tr.pos = cam->target - rotate(kh_vec3(0,0,1), cam->tr.rot) * cam->dist;
@@ -58,14 +68,41 @@ frame_update(ProgramMemory *memory, Input *input, RenderManager *render, Assets 
 		light.diffuse_intensity = 0.9f;
 		define_light(render, light);
 
-		AssetID texture_none = {};
-		u32 vert_format = add_vertex_format(render, VertexFormat_PosNormalUV);
-		u32 mat = add_material(render, vert_format, Material_phong);
-		u32 instance = add_material_instance(render, mat, assets, get_first_asset(assets, AssetName_randy_albedo), texture_none, kh_vec4(1,1,1,1));
-		u32 randy_meshr = add_mesh_renderer(render, instance, assets, get_first_asset(assets, AssetName_randy_mesh));
-		sample->randy.mesh_renderer = randy_meshr;
+		// char *filename      = "models/randy.dae";
+		// char *skeleton_str  = "skeleton";
+		// char *skin_str      = "skin";
+		// char *animation_str = "animation0";
+		// AssetID skeleton = {get_or_create_asset_id_from_name(assets, skeleton_str)};
+		// MeshSkinID skin = {get_or_create_asset_id_from_name(assets, skin_str)};
+		// AnimationID animation = {get_or_create_asset_id_from_name(assets, animation_str)};
+		// u32 randy_id = get_or_create_asset_id_from_name(assets, filename);
+		// TriangleMeshID randy_mesh_id = {randy_id};
+		// DEBUG_load_trimesh_directly(assets, filename, VertexFormat_PosNormalTangentBitangentUVSkinned, 
+		//                             skin_str, skeleton_str, animation_str);
+
+		// char *filename = "models/boblampclean.md5mesh";
+		u32 buffer = add_vertex_format(render, VertexFormat_PosNormalTangentBitangentUVSkinned);
+		u32 mat = add_material(render, buffer, Material_normalmapskinned);
+		u32 instance = add_material_instance(render, mat, assets, 
+		                                     get_first_asset(assets, AssetName_randy_albedo),
+		                                     get_first_asset(assets, AssetName_randy_normal), kh_vec4(1,1,1,1));
+		u32 randy = add_mesh_renderer(render, instance, assets, get_first_asset(assets, AssetName_randy_mesh_skinned));
+
+		AssetID skeleton = get_first_asset(assets, AssetName_randy_skeleton);
+		AssetID skin = get_first_asset(assets, AssetName_randy_skin);
+		AssetID anim = get_first_asset(assets, AssetName_randy_idle);
+
+		sample->randy.mesh_renderer = randy;
 		sample->randy.transform = kh_identity_mat4();
-		sample->randy.animator = INVALID_U32_OFFSET;
+		sample->randy.animator = add_animator(&render->animators, &render->bone_tr, assets, skeleton, skin, anim);
+
+		sample->randy_2.mesh_renderer = randy;
+		mat4 tr = kh_identity_mat4();
+		kh_set_translation_mat4(&tr, kh_vec3(3,0,0));
+		sample->randy_2.transform = tr;
+		sample->randy_2.animator = add_animator(&render->animators, &render->bone_tr, assets, skeleton, skin, anim);
+
+		set_playback_rate(&render->animators, sample->randy.animator, 0.5f);
 	}
 
 	FrameState *f_state = memory->f_state;
@@ -80,12 +117,9 @@ frame_update(ProgramMemory *memory, Input *input, RenderManager *render, Assets 
 	TransientStack f_stack = kh_begin_transient(&f_state->stack);
 	begin_render_frame(render, assets);
 
-
 	v2 dt_mouse = kh_vec2(input->delta_mouse_x, input->delta_mouse_y);
 	b32 middle_down = input->mouse_buttons[MouseButton_middle].down;
 	f32 wheel = (f32)input->dt_wheel;
-
-	// cam->pos += kh_normalize_v3(cam->target - cam->pos) * 0.2f * wheel * dt;
 
 	Camera *cam = &render->camera;
 	cam->dist -= wheel * 0.1f * dt;
@@ -94,7 +128,6 @@ frame_update(ProgramMemory *memory, Input *input, RenderManager *render, Assets 
 	{
 		f32 ax = dt_mouse.x * dt * 0.125f;
 		f32 ay = -dt_mouse.y * dt * 0.125f;
-
 
 		float cx = kh_cos_f32(ax);
 		float sx = kh_sin_f32(ax);
@@ -125,7 +158,13 @@ frame_update(ProgramMemory *memory, Input *input, RenderManager *render, Assets 
 	cam->right = kh_right_mat3(cam_wld);
 	cam->view = look_at_matrix(cam_wld, cam->tr.pos);
 
+	// TODO(flo): what should we do with this ?
+	for(u32 i = 0; i < render->animators.count; ++i) {
+		Animator *animator = render->animators.data + i;
+		update_animator(animator, &render->bone_tr, assets, dt);
+	}
 	push_render_entry(render, &sample->randy);
+	push_render_entry(render, &sample->randy_2);
 
 	kh_end_transient(&f_stack);
 

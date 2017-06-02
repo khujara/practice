@@ -17,7 +17,9 @@ inline v4
 kh_vec4(v3 xyz, f32 w)
 {
 	v4 res;
-	res.xyz = xyz;
+	res.x = xyz.x;
+	res.y = xyz.y;
+	res.z = xyz.z;
 	res.w = w;
 	return(res);
 }

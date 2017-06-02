@@ -1,4 +1,14 @@
 inline quat
+kh_quat(f32 x, f32 y, f32 z, f32 w) {
+	quat res;
+	res.x = x;
+	res.y = y;
+	res.z = z;
+	res.w = w;
+	return(res);
+}
+
+inline quat
 quat_identity()
 {
 	quat res;
@@ -77,6 +87,14 @@ operator-(quat a, quat b)
 }
 
 inline quat
+negate(quat a) {
+	quat res;
+	res.n = -a.n;
+	res.w = -a.w;
+	return(res);
+}
+
+inline quat
 conjugate(quat a)
 {
 	quat res;
@@ -114,6 +132,22 @@ normalize(quat a)
 	return(res);
 }
 
+inline f32
+normalize_or_identity(quat *a) {
+	f32 sq = kh_sqrt_f32(a->x*a->x + a->y*a->y + a->z*a->z + a->w*a->w);
+	if(sq == 0.0f) {
+		a->w = 1;
+	} else {
+		f32 factor = 1.0f / sq;
+		a->x *= factor;
+		a->y *= factor;
+		a->z *= factor;
+		a->w *= factor;
+	}
+
+	return(sq);
+}
+
 inline quat 
 kh_mix_quat(quat a, quat b, f32 f, f32 t)
 {
@@ -147,6 +181,7 @@ rotate(v3 v, quat q)
 	return(res);
 }
 
+#if 0
 inline quat
 slerp(quat a, quat b, f32 t)
 {
@@ -156,7 +191,7 @@ slerp(quat a, quat b, f32 t)
 	f32 o = kh_acos_f32(d) * t;
 
 	quat proj = a * d;
-	quat perp = b - perp;
+	quat perp = b - proj;
 	perp = normalize(perp);
 
 	quat res = kh_cos_f32(o)*a + kh_sin_f32(o)*perp;
@@ -169,6 +204,39 @@ slerp(quat a, quat b, f32 t)
 	// quat res = (sit*is)*a + (st*is)*b;
 	return(res);
 
+}
+#endif 
+
+inline quat
+kh_slerp_quat(quat a, quat b, f32 t) {
+	quat res;
+
+	f64 d = dot(a, b);
+	if(kh_abs_f64(d) >= 1.0f) {
+		res = a;
+		return(res);
+	}
+
+	f64 o = kh_acos_f32(d);
+	f64 s = kh_sqrt_f32(1.0f - d*d);
+
+	if(s < 0.001f) {
+		res.x = 0.5f * a.x + 0.5f * b.x;
+		res.y = 0.5f * a.y + 0.5f * b.y;
+		res.z = 0.5f * a.z + 0.5f * b.z;
+		res.w = 0.5f * a.w + 0.5f * b.w;
+		return(res);
+	} 
+
+	f64 inv = 1.0f / s;
+	f64 ra = kh_sin_f32((1.0f - t) * o) * inv;
+	f64 rb = kh_sin_f32(t * o) * inv;
+
+	res.x = ra * a.x + rb * b.x; 
+	res.y = ra * a.y + rb * b.y; 
+	res.z = ra * a.z + rb * b.z; 
+	res.w = ra * a.w + rb * b.w; 
+	return(res);
 }
 
 inline v3
@@ -195,9 +263,11 @@ slerp(v3 a, v3 b, f32 t)
 }
 
 inline quat
-nlerp(quat a, quat b, f32 t)
+kh_nlerp_quat(quat a, quat b, f32 t)
 {
-	quat res = normalize(kh_mix_quat(a, b, t));
+	quat res = kh_mix_quat(a, b, t);
+	normalize_or_identity(&res);
+
 	return(res); 
 }
 

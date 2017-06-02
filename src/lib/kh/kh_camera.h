@@ -135,7 +135,7 @@ from_vp_to_world_ortho(Camera *cam, v3 pos)
 
 	v4 tmp = (inverse_proj * inverse_view) * kh_vec4(pos, 1);
 
-	v3 res = tmp.xyz;
+	v3 res = kh_vec3(tmp);
 	return(res);
 }
 
@@ -149,7 +149,7 @@ from_vp_to_world_persp(Camera *cam, mat4 view, v3 pos)
 
 	v4 tmp = (inverse_proj * inverse_view) * kh_vec4(pos, 1);
 
-	v3 res = tmp.xyz;
+	v3 res = kh_vec3(tmp);
 	return(res);
 }
 

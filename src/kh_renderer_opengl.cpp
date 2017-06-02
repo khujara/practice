@@ -1,10 +1,7 @@
-// #include "kh_render_frame.h"
-// TODO(flo): remove the dependency that asset.cpp has (we always need to include render_frame.cpp)
-// #include "kh_asset.cpp"
-
 /* @TODO(flo) : MAIN TODO
 
 	- get rid of malloc
+	- Implement a 3.1 Opengl API
 	OPENGL :
 		- multiple lights
 		- gamma correction
@@ -23,6 +20,124 @@
 		- Map our vbos and ibos instead of buffer data to avoid having our datas in both cpu and gpu memory
 		- use SQT transform in the game update, the mat4 should be generated afterwards
 */
+
+#define MAX_ENTRIES 128
+
+enum AttributeBinding {
+	ATTRIB_VERTEX_DATA = 0,
+	ATTRIB_DRAWID      = 1,
+	ATTRIB_DRAWCMDID   = 2,
+	ATTRIB_ANIMATION   = 3,
+};
+
+enum ShaderLocation {
+	LOC_POSITION      = 0,
+	LOC_NORMAL        = 1,
+	LOC_UV0           = 2,
+	LOC_TANGENT       = 3,
+	LOC_BITANGENT     = 4,
+	LOC_BONE_IDS	  = 5,
+	LOC_BONE_WEIGHTS  = 6,
+	LOC_DRAWID        = 7,
+	LOC_INDIRECTCMDID = 8,
+};
+
+enum ShaderBinding {
+	BIND_MATERIAL        = 0,
+	BIND_TRANSFORM       = 1,
+	BIND_COLORS          = 2,
+	BIND_LIGHT           = 3,
+	BIND_CAMERATRANSFORM = 4,
+	BIND_VAO0            = 5,
+	BIND_LIGHTTRANSFORM  = 6,
+	BIND_SHADOWMAP       = 7,
+	BIND_BONETRANSFORM   = 8,
+	BIND_BONEOFFSET      = 9,
+	BIND_TEXTURES        = 0,
+};
+
+struct ShaderFile {
+	OglMaterial *material;
+	char *vert_file;
+	char *frag_file;
+	VertexFormat format;
+};
+
+enum PassType {
+	Pass_shadow,
+	Pass_render_3d_scene,
+	Pass_skybox,
+	Pass_blit,
+	Pass_count,
+};
+
+#define MAX_COLORS 16
+#define MAX_TEXTURES 64
+#define MAX_MESHES 64
+#define MAX_TEXTURE_BINDINGS 16
+#define MAX_DRAWCMD_PER_FRAME 8
+#define BIND_SKYBOX MAX_TEXTURE_BINDINGS
+struct OglState {
+	b32 bindless;
+	b32 sparse;
+	b32 zprepass_enabled;
+
+	OglCameraTransform *map_cam_transform;
+	OglTransform *map_transforms;
+	u32 *map_drawcmdsids;
+	u32 *map_drawids;
+
+	DrawElementsIndirectCommand cmds[MAX_DRAWCMD_PER_FRAME];
+
+	GLuint color_buffer;
+	GLuint cmds_buffer;
+
+	OglTexture2D shadow_map;
+
+	b32 has_skybox;
+	OglSkybox skybox;
+
+	u32 light_count;
+	OglLight lights[MAX_LIGHTS];
+
+	// TODO(flo): if we need to have more texture container thant TEXTURE_BINDINGS (which shoudl be retrive from opengl)
+	// we need to handle this case.
+	u32 texture_container_count;
+	GLuint texture_container_names[MAX_TEXTURE_BINDINGS];	
+	OglTexture2DContainer texture_containers[MAX_TEXTURE_BINDINGS];
+
+	u32 texture_count;
+	OglTexture2D textures[MAX_TEXTURES];
+
+	u32 mesh_count;
+	OglTriangleMesh meshes[MAX_MESHES];
+	OglVertexBuffer vertex_buffers[VertexFormat_count];
+
+	u32 used_material_count;
+	u32 used_materials[Material_count];
+	OglMaterial materials[Material_count];
+
+	OglExtensionsHash exts;
+
+	OglTexture2D target;
+
+	OglPass ogl_pass[Pass_count];
+
+	GLuint bone_transform;
+
+	u32 *map_boneoffset;
+	// GLuint bone_offsets;
+
+};
+
+GL_DEBUG_CALLBACK(OpenGLDebugCallback)
+{
+    if(severity == GL_DEBUG_SEVERITY_MEDIUM || severity == GL_DEBUG_SEVERITY_HIGH) {
+    	GLenum err = glGetError();	
+    	char *err_mess = (char *)message;
+    	kh_assert(!"OpenGL Error encountered");
+    }
+}
 
 KH_INTERN void
 check_required_ogl_extensions(OglExtensionsHash *hash) {
@@ -45,46 +160,6 @@ check_required_ogl_extensions(OglExtensionsHash *hash) {
 	ogl_check_ext_list(hash, required_exts, array_count(required_exts));
 }
 
-enum OglContainerType {
-	ContainerType_screen,
-	ContainerType_512_RGB,
-	ContainerType_1024_RGB,
-	ContainerType_4096_RGB,
-	ContainerType_4096_depth,
-	ContainerType_count,
-};
-
-#define MAX_COLORS 16
-#define BIND_SKYBOX MAX_TEXTURE_BINDINGS
-enum ShaderLocation {
-	LOC_POSITION      = 0,
-	LOC_NORMAL        = 1,
-	LOC_UV0           = 2,
-	LOC_TANGENT       = 3,
-	LOC_BITANGENT     = 4,
-	LOC_DRAWID        = 5,
-	LOC_INDIRECTCMDID = 6,
-};
-
-enum ShaderBinding {
-	BIND_MATERIAL        = 0,
-	BIND_TRANSFORM       = 1,
-	BIND_COLORS          = 2,
-	BIND_LIGHT           = 3,
-	BIND_CAMERATRANSFORM = 4,
-	BIND_VAO0            = 5,
-	BIND_LIGHTTRANSFORM  = 6,
-	BIND_SHADOWMAP       = 7,
-	BIND_TEXTURES        = 0,
-};
-
-struct ShaderFile {
-	OglMaterial *material;
-	char *vert_file;
-	char *frag_file;
-	VertexFormat format;
-};
-
 KH_INTERN GLuint
 create_vert_frag_prog(StackAllocator *memstack, char *vert_file, char *frag_file, b32 bindless) {
 	char vert_header[4096];
@@ -99,11 +174,15 @@ create_vert_frag_prog(StackAllocator *memstack, char *vert_file, char *frag_file
 		"#define LOC_INDIRECTCMDID %d\n"
 		"#define LOC_TANGENT %d\n"
 		"#define LOC_BITANGENT %d\n"
+		"#define LOC_BONE_IDS %d\n"
+		"#define LOC_BONE_WEIGHTS %d\n"
 		"#define BIND_TRANSFORM %d\n"
 		"#define BIND_CAMERATRANSFORM %d\n"
-		"#define BIND_LIGHTTRANSFORM %d\n\n",
-		LOC_POSITION, LOC_NORMAL, LOC_UV0, LOC_DRAWID, LOC_INDIRECTCMDID, LOC_TANGENT, LOC_BITANGENT,
-		BIND_TRANSFORM, BIND_CAMERATRANSFORM, BIND_LIGHTTRANSFORM);
+		"#define BIND_LIGHTTRANSFORM %d\n"
+		"#define BIND_BONETRANSFORM %d\n"
+		"#define BIND_BONEOFFSET %d\n\n",
+		LOC_POSITION, LOC_NORMAL, LOC_UV0, LOC_DRAWID, LOC_INDIRECTCMDID, LOC_TANGENT, LOC_BITANGENT, LOC_BONE_IDS, 
+		LOC_BONE_WEIGHTS, BIND_TRANSFORM, BIND_CAMERATRANSFORM, BIND_LIGHTTRANSFORM, BIND_BONETRANSFORM, BIND_BONEOFFSET);
 
 	/* @NOTE(flo): this is only for RenderDoc support since it does not support these extensions atm :
 		cf : https://github.com/baldurk/renderdoc/blob/master/renderdoc/driver/gl/gl_driver.cpp
@@ -117,9 +196,9 @@ create_vert_frag_prog(StackAllocator *memstack, char *vert_file, char *frag_file
 	*/
 	// TODO(flo): for now we have the same material structure for every program, maybe we want a specific material
 	// structure for each program
-	char *bindless_support;
+	char *bindless_header;
 	if(bindless) {
-		bindless_support = 
+		bindless_header = 
 			"#extension GL_ARB_bindless_texture : require\n"
 			"struct TexAddress {\n"
 			"	sampler2DArray container;\n"
@@ -129,7 +208,7 @@ create_vert_frag_prog(StackAllocator *memstack, char *vert_file, char *frag_file
 			"	return texture(addr.container, vec3(uv, addr.page));\n"
 			"}\n";
 	} else {
-		bindless_support = 
+		bindless_header = 
 			"struct TexAddress {\n"
 			"	uint container;\n"
 			"	float page;\n"
@@ -140,9 +219,15 @@ create_vert_frag_prog(StackAllocator *memstack, char *vert_file, char *frag_file
 			"}\n";
 	}
 
-	u32 bindless_support_l = string_length(bindless_support);
+	u32 bindless_support_l = string_length(bindless_header);
 	char frag_header_begin[4096];
 	char frag_header[4096];
+
+	// u32 num_textures = 2;
+	/* layout(std140, binding = BIND_MATERIAL) buffer TEXTURE_BLOCK {
+			TexAddres tex[num_textures];
+		}
+	*/
 
 	stbsp_sprintf(frag_header_begin, 
      	"#version 450 core\n"
@@ -161,7 +246,7 @@ create_vert_frag_prog(StackAllocator *memstack, char *vert_file, char *frag_file
 	u32 frag_header_begin_l = string_length(frag_header_begin);
 
 	strings_copy_NNT(frag_header_begin_l, frag_header_begin, frag_header);
-	strings_copy(bindless_support_l, bindless_support, frag_header + frag_header_begin_l);
+	strings_copy(bindless_support_l, bindless_header, frag_header + frag_header_begin_l);
 
 	u32 vert_header_l = string_length(vert_header);
 	u32 frag_header_l = string_length(frag_header);
@@ -187,10 +272,19 @@ create_vert_frag_prog(StackAllocator *memstack, char *vert_file, char *frag_file
 	return(res);
 }
 
+KH_INLINE OglTexture2DContainer *
+create_texture_2D_container(OglState *ogl, u32 slices_count, u32 mipmaps_count, GLenum internalformat, u32 w, u32 h) {
+	kh_assert(ogl->texture_container_count < MAX_TEXTURE_BINDINGS);
+	u32 id = ogl->texture_container_count++;
+	OglTexture2DContainer *res = ogl->texture_containers + id; 
+	*res = ogl_create_texture_2D_container(slices_count, mipmaps_count, internalformat, w, h, id, ogl->sparse, ogl->bindless);
+	ogl->texture_container_names[id] = res->name;
+	return(res);
+}
+
 KH_INTERN void
 create_vert_frag_prog(OglState *ogl, MaterialType type, StackAllocator *memstack, char *vert_file, char *frag_file, VertexFormat format) {
 	OglMaterial *mat = ogl->materials + type;
-
 	mat->prog_name = create_vert_frag_prog(memstack, vert_file, frag_file, ogl->bindless);
 	mat->format = format;
 }
@@ -206,65 +300,57 @@ get_texture_container(OglState *ogl, u32 w, u32 h, u32 mipmaps_count, GLenum for
 			break;
 		}
 	}
+	if(!res) {
+		res = create_texture_2D_container(ogl, 2, mipmaps_count, format, w, h);	
+	}
 	kh_assert(res);
 	return(res);
 }
 
-KH_INTERN OglTexture2D *
-new_ogl_texture_2d(OglState *ogl, RenderManager *render, DataHashElement *el) {
-
-	kh_assert(ogl->texture_count <= MAX_TEXTURES);
-	OglTexture2D *res;
-	u32 index = ogl->texture_count++;
-	el->gpu_index = index;
-	res = ogl->textures + index;
-
-	Texture2D *tex = get_datas(render->cache, el, Texture2D);
-	kh_assert(tex->bytes_per_pixel == 3);
-	OglTexture2DContainer *container = get_texture_container(ogl, tex->width, tex->height, 1, GL_RGB8);
-	ogl_add_texture_2D_to_container(container, res, tex, GL_BGR);
-	return(res);
-}
-
 KH_INLINE OglTexture2D *
-get_ogl_texture_2d(OglState *ogl, RenderManager *render, DataHashElement *el) {
+get_ogl_texture_2d(OglState *ogl, RenderManager *render, Assets *assets, AssetID id) {
 	OglTexture2D *res;
-	if(el->gpu_index == INVALID_DATA_HANDLE) {
-		res = new_ogl_texture_2d(ogl, render, el);
+	Asset *asset = get_asset(assets, id, AssetType_tex2d);
+	if(asset->header.gpu_index == INVALID_GPU_INDEX) {
+		kh_assert(ogl->texture_count <= MAX_TEXTURES);
+		u32 index = ogl->texture_count++;
+		asset->header.gpu_index = index;
+		res = ogl->textures + index;
+		Texture2D tex = asset->source.type.tex2d;
+		u8 *tex_data = get_datas_from_asset(assets, asset);
+		kh_assert(tex.bytes_per_pixel == 3);
+		OglTexture2DContainer *container = get_texture_container(ogl, tex.width, tex.height, 1, GL_RGB8);
+		ogl_add_texture_2D_to_container(container, res, &tex, tex_data, GL_BGR);
+
 	} else {
-		res = ogl->textures + el->gpu_index;
+		res = ogl->textures + asset->header.gpu_index;
 	}
 	return(res);
 }
 
-KH_INTERN OglTriangleMesh *
-add_triangle_mesh_to_vbo(OglState *ogl, RenderManager *render, DataHashElement *el, VertexFormat format) {
-	kh_assert(ogl->mesh_count <= MAX_MESHES);
-	u32 index = ogl->mesh_count++;
-	el->gpu_index = index;
-	OglTriangleMesh *res = ogl->meshes + index;
-	OglVertexBuffer *vertex_buffer = ogl->vertex_buffers + format;
-	TriangleMesh *mesh = get_datas(render->cache, el, TriangleMesh);
-	kh_assert(mesh->format == format);
-	ogl_add_triangle_mesh_memory_to_vbo(res, vertex_buffer, mesh);
-	return(res);
-}
-
 KH_INLINE OglTriangleMesh *
-get_ogl_triangle_mesh(OglState *ogl, RenderManager *render, DataHashElement *el, VertexFormat format) {
+get_ogl_triangle_mesh(OglState *ogl, RenderManager *render, Assets *assets, AssetID id, VertexFormat format) {
 	OglTriangleMesh *res;
-	if(el->gpu_index == INVALID_DATA_HANDLE) {
-		res = add_triangle_mesh_to_vbo(ogl, render, el, format);
+	Asset *asset = get_asset(assets, id, AssetType_trimesh);
+	if(asset->header.gpu_index == INVALID_GPU_INDEX) {
+		kh_assert(ogl->mesh_count <= MAX_MESHES);
+		u32 index = ogl->mesh_count++;
+		asset->header.gpu_index = index;
+		res = ogl->meshes + index;
+		OglVertexBuffer *vertex_buffer = ogl->vertex_buffers + format;
+		TriangleMesh mesh = asset->source.type.trimesh;
+		u8 *mesh_data = get_datas_from_asset(assets, asset);
+		kh_assert(mesh.format == format);
+		ogl_add_triangle_mesh_memory_to_vbo(res, vertex_buffer, &mesh, mesh_data);
 	} else {
-		res = ogl->meshes + el->gpu_index;
+		res = ogl->meshes + asset->header.gpu_index;
 	}
 	return(res);
 }
 
 KH_INLINE void
-ogl_set_skybox(OglState *ogl, RenderManager *render) {
+ogl_set_skybox(OglState *ogl, RenderManager *render, Assets *assets) {
 	GLfloat skybox_vert[] = {
-	        // Positions          
 		1.0f, -1.0f, -1.0f,
 		-1.0f, -1.0f, -1.0f,
 		-1.0f,  1.0f, -1.0f,
@@ -313,14 +399,15 @@ ogl_set_skybox(OglState *ogl, RenderManager *render) {
 	glNamedBufferData(vertices, sizeof(skybox_vert), skybox_vert, GL_STATIC_DRAW);
 	ogl->ogl_pass[Pass_skybox].vertexbuffer = vertices;
 
-	Texture2D *right = get_datas_from_handle(render->cache, render->skybox.right, Texture2D);
-	Texture2D *left = get_datas_from_handle(render->cache, render->skybox.left, Texture2D);
-	Texture2D *bottom = get_datas_from_handle(render->cache, render->skybox.bottom, Texture2D);
-	Texture2D *top = get_datas_from_handle(render->cache, render->skybox.top, Texture2D);
-	Texture2D *back = get_datas_from_handle(render->cache, render->skybox.back, Texture2D);
-	Texture2D *front = get_datas_from_handle(render->cache, render->skybox.front, Texture2D);
+	LoadedAsset right = get_loaded_asset(assets, render->skybox.right, AssetType_tex2d);
+	LoadedAsset left = get_loaded_asset(assets, render->skybox.left, AssetType_tex2d);
+	LoadedAsset bottom = get_loaded_asset(assets, render->skybox.bottom, AssetType_tex2d);
+	LoadedAsset top = get_loaded_asset(assets, render->skybox.top, AssetType_tex2d);
+	LoadedAsset back = get_loaded_asset(assets, render->skybox.back, AssetType_tex2d);
+	LoadedAsset front = get_loaded_asset(assets, render->skybox.front, AssetType_tex2d);
 
 	GLuint skybox_tex;
+	// glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &skybox_tex);
 	glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &skybox_tex);
 	glTextureParameteri(skybox_tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTextureParameteri(skybox_tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -328,13 +415,14 @@ ogl_set_skybox(OglState *ogl, RenderManager *render) {
 	glTextureParameteri(skybox_tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTextureParameteri(skybox_tex, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
-	glTextureStorage2D(skybox_tex, 1, GL_RGB8, right->width, right->height);
-	glTextureSubImage3D(skybox_tex, 0, 0, 0, 0, right->width, right->height, 1, GL_BGR, GL_UNSIGNED_BYTE, right->memory);
-	glTextureSubImage3D(skybox_tex, 0, 0, 0, 1, left->width, left->height, 1, GL_BGR, GL_UNSIGNED_BYTE, left->memory);
-	glTextureSubImage3D(skybox_tex, 0, 0, 0, 2, bottom->width, bottom->height, 1, GL_BGR, GL_UNSIGNED_BYTE, bottom->memory);
-	glTextureSubImage3D(skybox_tex, 0, 0, 0, 3, top->width, top->height, 1, GL_BGR, GL_UNSIGNED_BYTE, top->memory);
-	glTextureSubImage3D(skybox_tex, 0, 0, 0, 4, back->width, back->height, 1, GL_BGR, GL_UNSIGNED_BYTE, back->memory);
-	glTextureSubImage3D(skybox_tex, 0, 0, 0, 5, front->width, front->height, 1, GL_BGR, GL_UNSIGNED_BYTE, front->memory);
+	// glTextureStorage3D(skybox_tex, 1, GL_RGB8, right->width, right->height, 6);
+	glTextureStorage2D(skybox_tex, 1, GL_RGB8, right.type->tex2d.width, right.type->tex2d.height);
+	glTextureSubImage3D(skybox_tex, 0, 0, 0, 0, right.type->tex2d.width, right.type->tex2d.height, 1, GL_BGR, GL_UNSIGNED_BYTE, right.data);
+	glTextureSubImage3D(skybox_tex, 0, 0, 0, 1, left.type->tex2d.width, left.type->tex2d.height, 1, GL_BGR, GL_UNSIGNED_BYTE, left.data);
+	glTextureSubImage3D(skybox_tex, 0, 0, 0, 2, bottom.type->tex2d.width, bottom.type->tex2d.height, 1, GL_BGR, GL_UNSIGNED_BYTE, bottom.data);
+	glTextureSubImage3D(skybox_tex, 0, 0, 0, 3, top.type->tex2d.width, top.type->tex2d.height, 1, GL_BGR, GL_UNSIGNED_BYTE, top.data);
+	glTextureSubImage3D(skybox_tex, 0, 0, 0, 4, back.type->tex2d.width, back.type->tex2d.height, 1, GL_BGR, GL_UNSIGNED_BYTE, back.data);
+	glTextureSubImage3D(skybox_tex, 0, 0, 0, 5, front.type->tex2d.width, front.type->tex2d.height, 1, GL_BGR, GL_UNSIGNED_BYTE, front.data);
 
 	glBindTextureUnit(BIND_SKYBOX, skybox_tex);
 
@@ -477,7 +565,8 @@ ogl_DEBUG_draw_axis(GLuint prog_name, v3 pos, v3 x_axis, v3 y_axis, v3 z_axis, f
 	GLuint buffer;
 	glCreateBuffers(1, &buffer);
 	glNamedBufferData(buffer, sizeof(line_verts), line_verts, GL_STREAM_DRAW);
-	glBindVertexBuffer(0, buffer, 0, 6 * sizeof(GLfloat));
+	glBindVertexBuffer(ATTRIB_VERTEX_DATA, buffer, 0, 6 * sizeof(GLfloat));
+	glEnable(GL_LINE_SMOOTH);
 	glLineWidth(width);
 	glDrawArrays(GL_LINES, 0, 6);
 	glDeleteBuffers(1, &buffer);
@@ -506,9 +595,31 @@ ogl_display_buffer(OglState *ogl, u32 w, u32 h) {
 
 	OglPass *blit_pass = ogl->ogl_pass + Pass_blit;
 	glUseProgram(ogl->materials[Material_rendertarget].prog_name);
-	glBindVertexBuffer(0, blit_pass->vertexbuffer, 0, 3 * sizeof(GLfloat));
+	glBindVertexBuffer(ATTRIB_VERTEX_DATA, blit_pass->vertexbuffer, 0, 3 * sizeof(GLfloat));
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BIND_MATERIAL, blit_pass->matbuffer);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	// ogl_DEBUG_draw_texture(ogl, &ogl->shadow_map, 0, 0, 200, 200);
+
+}
+
+#define MAX_VERTICES_COUNT megabytes(3)
+#define MAX_TRIANGLES_COUNT megabytes(1)
+
+KH_INTERN void
+create_vertex_buffer(OglState *ogl, VertexFormat format) {
+
+	OglVertexBuffer *vert_buffer = ogl->vertex_buffers + format;
+	u32 size = get_size_from_vertex_format(format);
+	b32 skinned = false;
+	u32 anim_offset = 0;
+	if(has_skin(format)) {
+		skinned = true;
+		i32 offset = get_skinned_attribute_offset(format).offset;
+		kh_assert(offset != -1);
+		anim_offset = (u32)offset;
+	}
+	ogl_init_vertex_buffer(vert_buffer, size, MAX_VERTICES_COUNT, MAX_TRIANGLES_COUNT, skinned, anim_offset);
 }
 
 KH_INTERN void
@@ -523,10 +634,11 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 
 	ogl->bindless = ogl_check_ext(hash, "GL_ARB_bindless_texture");
 	ogl->sparse = ogl_check_ext(hash, "GL_ARB_sparse_texture");
+	// ogl->sparse = false;
 	// bindless = false;
 	ogl->zprepass_enabled = false;
 
-	DataCache *cache = render->cache;
+	DataCache *cache = &assets->cache;
 
 	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 	glDebugMessageCallback(OpenGLDebugCallback, 0);
@@ -542,6 +654,8 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 		                      "shaders/phongbasis.frag", VertexFormat_PosNormalUV);
 		create_vert_frag_prog(ogl, Material_normalmap, &shader_stack, "shaders/normalmapping.vert", 
 		                      "shaders/normalmapping.frag", VertexFormat_PosNormalTangentBitangentUV);
+		create_vert_frag_prog(ogl, Material_normalmapskinned, &shader_stack, "shaders/normalmapping_skinned.vert", 
+		                      "shaders/normalmapping_skinned.frag", VertexFormat_PosNormalTangentBitangentUVSkinned);
 		create_vert_frag_prog(ogl, Material_shadowmap, &shader_stack, "shaders/shadowmap.vert", 
 		                      "shaders/shadowmap.frag", VertexFormat_PosNormalUV);
 		create_vert_frag_prog(ogl, Material_skybox, &shader_stack, "shaders/skybox.vert", 
@@ -556,21 +670,16 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 
 	// NOTE(flo): INIT MESHES AND VBOS
 	{
-		const u32 MAX_VERTICES_COUNT = megabytes(3); 
-		const u32 MAX_TRIANGLES_COUNT = megabytes(1);
-
-		OglVertexBuffer *vert_buffer = ogl->vertex_buffers + VertexFormat_PosNormalUV;
-		ogl_init_vertex_buffer(vert_buffer, MAX_VERTICES_COUNT, sizeof(Vertex_PNU), MAX_TRIANGLES_COUNT);
-
-		OglVertexBuffer *verttangent_buffer = ogl->vertex_buffers + VertexFormat_PosNormalTangentBitangentUV;
-		ogl_init_vertex_buffer(verttangent_buffer, MAX_VERTICES_COUNT, sizeof(Vertex_PNUTB), MAX_TRIANGLES_COUNT);
+		create_vertex_buffer(ogl, VertexFormat_PosNormalUV);
+		create_vertex_buffer(ogl, VertexFormat_PosNormalTangentBitangentUV);
+		create_vertex_buffer(ogl, VertexFormat_PosNormalTangentBitangentUVSkinned);
 	}
 
-	// TODO(flo): hash for this ?
-	ogl_create_texture_2D_container(ogl, 2, 1, GL_RGB8, 4096, 4096);
-	ogl_create_texture_2D_container(ogl, 2, 1, GL_RGB8, 512, 512);
-	ogl_create_texture_2D_container(ogl, 2, 1, GL_RGB8, 1024, 1024);
-	ogl_create_texture_2D_container(ogl, 1, 1, GL_DEPTH_COMPONENT24, 4096, 4096);
+	// TODO(flo): hash for this ? we need to create on fly
+	create_texture_2D_container(ogl, 2, 1, GL_RGB8, 4096, 4096);
+	create_texture_2D_container(ogl, 2, 1, GL_RGB8, 512, 512);
+	create_texture_2D_container(ogl, 2, 1, GL_RGB8, 1024, 1024);
+	create_texture_2D_container(ogl, 1, 1, GL_DEPTH_COMPONENT24, 4096, 4096);
 
 	// NOTE(flo): INIT TEXTURES
 	{
@@ -579,6 +688,8 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 		// and keep the depth (zoffset and the handle)
 		// @TODO(flo): allocate directly to vbo with bufferstorage and mapbuffer so we do not need texture->memory 
 		// and mesh->memory, the entry will just need a buffer id and a buffer offset
+		// TODO(flo): each material should have its own buffer that we can bind with the bindbufferbase
+		// since we do not want to pass too much textures if we do not need them
 		glCreateBuffers(1, &ogl->ogl_pass[Pass_render_3d_scene].matbuffer);
 		if(ogl->bindless) {
 			glNamedBufferStorage(ogl->ogl_pass[Pass_render_3d_scene].matbuffer, 
@@ -589,13 +700,28 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 		}
 	}
 
+	// NOTE(flo): INIT ANIMATIONS
+	{
+		glCreateBuffers(1, &ogl->bone_transform);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BIND_BONETRANSFORM, ogl->bone_transform);
+
+		GLuint bone_offset;
+		glCreateBuffers(1, &bone_offset);
+		glNamedBufferStorage(bone_offset, sizeof(u32) * MAX_ENTRIES, NULL, flags);
+		ogl->map_boneoffset = (u32 *)glMapNamedBufferRange(bone_offset, 0, sizeof(u32) * MAX_ENTRIES, flags);
+
+		// glNamedBufferData(bone_offset, sizeof(u32) * MAX_ENTRIES, 0, GL_DYNAMIC_DRAW);
+		// ogl->bone_offsets = bone_offset;
+
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BIND_BONEOFFSET, bone_offset);
+	}
+
 	GLuint vao;
 	glCreateVertexArrays(1, &vao);
 	glBindVertexArray(vao);
 
 	// NOTE(flo): BLIT PASS
-	OglTexture2DContainer *container_fb = ogl_create_texture_2D_container(ogl, 1, 1, GL_RGBA8, render->width, render->height);
-
+	OglTexture2DContainer *container_fb = create_texture_2D_container(ogl, 1, 1, GL_RGBA8, render->width, render->height);
 	ogl_add_texture_to_container(container_fb, &ogl->target);
 	{
 		GLfloat fb_pos[] = {
@@ -641,11 +767,14 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 			glNamedBufferData(ogl->ogl_pass[Pass_blit].matbuffer, sizeof(OglTextureAddress), &addr, GL_STATIC_DRAW);
 		}
 
-		umm pos_offset = 0;
-		umm norm_offset = pos_offset + 3 * sizeof(GLfloat);//uv_offset + vert_count * 2 * sizeof(GLfloat);
-		umm uv_offset = norm_offset + 3 * sizeof(GLfloat);//pos_offset + vert_count * (3 * sizeof(GLfloat));
-		umm tan_offset = uv_offset + 2 *sizeof(GLfloat);
-		umm bi_offset = tan_offset + 3 * sizeof(GLfloat);
+		umm pos_offset    = 0;
+		umm norm_offset   = pos_offset + 3 * sizeof(GLfloat);
+		umm uv_offset     = norm_offset + 3 * sizeof(GLfloat);
+		umm tan_offset    = uv_offset + 2 *sizeof(GLfloat);
+		umm bi_offset     = tan_offset + 3 * sizeof(GLfloat);
+		// umm id_offset     = bi_offset + 3 * sizeof(GLfloat);
+		umm id_offset     = 0;
+		umm weight_offset = id_offset + 4 * sizeof(GLint);
 
 		// TODO(flo): for now we assume that for every vertex format all locations are in the same place
 		// only the stride can change. Do we need to discard this assumption ?
@@ -655,22 +784,29 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 		glVertexAttribFormat(LOC_TANGENT, 3, GL_FLOAT, GL_FALSE, tan_offset);
 		glVertexAttribFormat(LOC_BITANGENT, 3, GL_FLOAT, GL_FALSE, bi_offset);
 
-		glVertexAttribBinding(LOC_POSITION, 0);
-		glVertexAttribBinding(LOC_NORMAL, 0);
-		glVertexAttribBinding(LOC_UV0, 0);
-		glVertexAttribBinding(LOC_TANGENT, 0);
-		glVertexAttribBinding(LOC_BITANGENT, 0);
+		glVertexAttribIFormat(LOC_BONE_IDS, 4, GL_INT, id_offset);
+		glVertexAttribFormat(LOC_BONE_WEIGHTS, 4, GL_FLOAT, GL_FALSE, weight_offset);
+
+		glVertexAttribBinding(LOC_POSITION, ATTRIB_VERTEX_DATA);
+		glVertexAttribBinding(LOC_NORMAL, ATTRIB_VERTEX_DATA);
+		glVertexAttribBinding(LOC_UV0, ATTRIB_VERTEX_DATA);
+		glVertexAttribBinding(LOC_TANGENT, ATTRIB_VERTEX_DATA);
+		glVertexAttribBinding(LOC_BITANGENT, ATTRIB_VERTEX_DATA);
+
+		glVertexAttribBinding(LOC_BONE_IDS, ATTRIB_ANIMATION);
+		glVertexAttribBinding(LOC_BONE_WEIGHTS, ATTRIB_ANIMATION);
 
 		glEnableVertexAttribArray(LOC_POSITION);
 		glEnableVertexAttribArray(LOC_NORMAL);
 		glEnableVertexAttribArray(LOC_UV0);
 		glEnableVertexAttribArray(LOC_TANGENT);
 		glEnableVertexAttribArray(LOC_BITANGENT);
+		glEnableVertexAttribArray(LOC_BONE_IDS);
+		glEnableVertexAttribArray(LOC_BONE_WEIGHTS);
 
-		#define MAX_ENTRIES 128
 		GLuint transform;
 		glCreateBuffers(1, &transform);
-		glNamedBufferStorage(transform, sizeof(OglTransform) * MAX_ENTRIES, NULL, flags);
+		glNamedBufferStorage(transform, sizeof(OglTransform) * MAX_ENTRIES, NULL, create_flags);
 		ogl->map_transforms = (OglTransform *)glMapNamedBufferRange(transform, 0, sizeof(OglTransform) * MAX_ENTRIES, flags);
 
 		GLuint idbo;
@@ -678,20 +814,20 @@ ogl_start(OglState *ogl, RenderManager *render, Assets *assets) {
 		glNamedBufferStorage(idbo, sizeof(u32) * MAX_ENTRIES, 0, create_flags);
 		ogl->map_drawids = (u32 *)glMapNamedBufferRange(idbo, 0, sizeof(u32) * MAX_ENTRIES, flags);
 		glVertexAttribIFormat(LOC_DRAWID, 1, GL_UNSIGNED_INT, 0);
-		glVertexAttribBinding(LOC_DRAWID, 1);
-		glVertexBindingDivisor(1, 1);
+		glVertexAttribBinding(LOC_DRAWID, ATTRIB_DRAWID);
+		glVertexBindingDivisor(ATTRIB_DRAWID, 1);
 		glEnableVertexAttribArray(LOC_DRAWID);
-		glBindVertexBuffer(1, idbo, 0, sizeof(GL_UNSIGNED_INT));
+		glBindVertexBuffer(ATTRIB_DRAWID, idbo, 0, sizeof(GL_UNSIGNED_INT));
 
 		GLuint cmd_id;
 		glCreateBuffers(1, &cmd_id);
 		glNamedBufferStorage(cmd_id, sizeof(u32) * MAX_ENTRIES, 0, create_flags);
 		ogl->map_drawcmdsids = (u32 *)glMapNamedBufferRange(cmd_id, 0, sizeof(u32) * MAX_ENTRIES, flags);
 		glVertexAttribIFormat(LOC_INDIRECTCMDID, 1, GL_UNSIGNED_INT, 0);
-		glVertexAttribBinding(LOC_INDIRECTCMDID, 2);
-		glVertexBindingDivisor(2, 1);
+		glVertexAttribBinding(LOC_INDIRECTCMDID, ATTRIB_DRAWCMDID);
+		glVertexBindingDivisor(ATTRIB_DRAWCMDID, 1);
 		glEnableVertexAttribArray(LOC_INDIRECTCMDID);
-		glBindVertexBuffer(2, cmd_id, 0, sizeof(GL_UNSIGNED_INT));
+		glBindVertexBuffer(ATTRIB_DRAWCMDID, cmd_id, 0, sizeof(GL_UNSIGNED_INT));
 
 		glCreateBuffers(1, &ogl->color_buffer);
 		glNamedBufferStorage(ogl->color_buffer, sizeof(v4) * MAX_COLORS, 0, GL_DYNAMIC_STORAGE_BIT);
@@ -735,9 +871,9 @@ ogl_render_material(OglMaterial *mat) {
 
 // TODO(flo): remove allocation
 KH_INTERN void
-ogl_update(OglState *ogl, RenderManager *render) {
+ogl_update(OglState *ogl, RenderManager *render, Assets *assets) {
 
-	DataCache *cache = render->cache;
+	DataCache *cache = &assets->cache;
 	#define NUM_TEXTURE 2
 	u32 batch_count = render->batch_count;
 	u32 cmd_count = 0;
@@ -745,129 +881,142 @@ ogl_update(OglState *ogl, RenderManager *render) {
 	u32 total_entry_count = 0;
 	ogl->used_material_count = 0;
 
-	u8 *tex_addresses = 0;
-	v4 *colors = (v4 *)malloc(sizeof(v4) * batch_count);
-	if(ogl->bindless) {
-		u32 size = sizeof(OglBindlessTextureAddress) * batch_count * NUM_TEXTURE;
-		tex_addresses = (u8 *)malloc(size);
-		kh_assert((size % 16 == 0));
 
-	} else {
-		u32 size = sizeof(OglTextureAddress) * batch_count * NUM_TEXTURE;
-		tex_addresses = (u8 *)malloc(size);
-		kh_assert((size % 16 == 0));
-	}
+	if(render->batch_count > 0 && render->entry_count > 0) {
 
-	for(VertexBuffer *buffer = render->first_vertex_buffer; buffer; buffer = buffer->next) {
-		VertexFormat fmt = buffer->format;
-		for(Material *mat = buffer->first; mat; mat = mat->next) {
-			MaterialType type = mat->type;
-			OglMaterial *oglmat = ogl->materials + type;
-			oglmat->cmd_count = 0;
-			oglmat->render_count = 0;
-			oglmat->format = fmt;
-			oglmat->cmd_offset = cmd_count;
-			ogl->used_materials[ogl->used_material_count++] = (u32)type;
-			for(MaterialInstance *instance = mat->first; instance; instance = instance->next) {
+		glNamedBufferData(ogl->bone_transform, render->bone_tr.count * sizeof(mat4), render->bone_tr.data, GL_DYNAMIC_DRAW);
 
-				DataHashElement *diffuse_el = cache->hash + instance->diffuse;
-				DataHashElement *normal_el = cache->hash + instance->normal;
+		u8 *tex_addresses = 0;
+		v4 *colors = (v4 *)malloc(sizeof(v4) * batch_count);
+		if(ogl->bindless) {
+			u32 size = sizeof(OglBindlessTextureAddress) * batch_count * NUM_TEXTURE;
+			tex_addresses = (u8 *)malloc(size);
+			kh_assert((size % 16 == 0));
 
-				OglTexture2D *diffuse = 0;
-				OglTexture2D *normal = 0;
+		} else {
+			u32 size = sizeof(OglTextureAddress) * batch_count * NUM_TEXTURE;
+			tex_addresses = (u8 *)malloc(size);
+			kh_assert((size % 16 == 0));
+		}
 
-				if(instance->diffuse) {
-					diffuse = get_ogl_texture_2d(ogl, render, diffuse_el);
-				}
-				if(instance->normal) {
-					normal = get_ogl_texture_2d(ogl, render, normal_el);
-				}
+		for(VertexBuffer *buffer = render->first_vertex_buffer; buffer; buffer = buffer->next) {
+			VertexFormat fmt = buffer->format;
+			for(Material *mat = buffer->first; mat; mat = mat->next) {
+				MaterialType type = mat->type;
+				OglMaterial *oglmat = ogl->materials + type;
+				oglmat->cmd_count = 0;
+				oglmat->render_count = 0;
+				kh_assert(oglmat->format == fmt);
+				// oglmat->format = fmt;
+				oglmat->cmd_offset = cmd_count;
+				ogl->used_materials[ogl->used_material_count++] = (u32)type;
 
-				for(MeshRenderer *meshr = instance->first; meshr; meshr = meshr->next) {
-					u32 cmd_ind = cmd_count++;
-					kh_assert(cmd_count < MAX_DRAWCMD_PER_FRAME);
+				for(MaterialInstance *instance = mat->first; instance; instance = instance->next) {
 
-					u32 entry_count = meshr->entry_count;
+					OglTexture2D *diffuse = 0;
+					OglTexture2D *normal = 0;
 
-					oglmat->cmd_count++;
-					oglmat->render_count += entry_count;
-
-					if(ogl->bindless) {
-						OglBindlessTextureAddress *texaddr = (OglBindlessTextureAddress *)tex_addresses + cmd_ind * NUM_TEXTURE;
-						if(diffuse) {
-							texaddr[0] = {diffuse->bindless, (f32)diffuse->slice, 0};
-						} else {
-							texaddr[0] = {};
-						}
-						if(normal) {
-							texaddr[1] = {normal->bindless, (f32)normal->slice, 0};
-						} else {
-							texaddr[1] = {};
-						}
-					} else {
-						OglTextureAddress *texaddr = (OglTextureAddress *)tex_addresses + cmd_ind * NUM_TEXTURE;
-						if(diffuse) {
-							texaddr[0] = {diffuse->container_id, (f32)diffuse->slice, 0, 0};
-						} else {
-							texaddr[0] = {};
-						}
-						if(normal) {
-							texaddr[1] = {normal->container_id, (f32)normal->slice, 0, 0};
-						} else {
-							texaddr[1] = {};
-						}
+					if(instance->diffuse.val && get_asset_state(assets, instance->diffuse) == AssetState_loaded) {
+						diffuse = get_ogl_texture_2d(ogl, render, assets, instance->diffuse);
 					}
-					colors[cmd_ind] = instance->color;
+					if(instance->normal.val && get_asset_state(assets, instance->normal) == AssetState_loaded) {
+						normal = get_ogl_texture_2d(ogl, render, assets, instance->normal);
+					}
 
-					DataHashElement *mesh_el = cache->hash + meshr->mesh;
-					OglTriangleMesh *mesh = get_ogl_triangle_mesh(ogl, render, mesh_el, fmt);
+					for(MeshRenderer *meshr = instance->first; meshr; meshr = meshr->next) {
+						u32 entry_count = meshr->entry_count;
+						if(entry_count > 0) {	
+							u32 cmd_ind = cmd_count++;
+							kh_assert(cmd_count < MAX_DRAWCMD_PER_FRAME);
 
-					DrawElementsIndirectCommand *cmd = ogl->cmds + cmd_ind;
-					cmd->primCount = entry_count;
-					cmd->count = mesh->ind_count;
-					cmd->firstIndex = mesh->ibo_offset;
-					cmd->baseVertex = mesh->vbo_offset; 
-					cmd->baseInstance = base_instance;
-					base_instance += cmd->primCount;
 
-					u32 entry_ind = meshr->first_entry;
-					for(u32 i = 0; i < entry_count; ++i) {
-						RenderEntry *entry = render->render_entries + entry_ind;
+							oglmat->cmd_count++;
+							oglmat->render_count += entry_count;
 
-						OglTransform *map_tr = ogl->map_transforms + total_entry_count;
-						map_tr->model = entry->tr;
-						ogl->map_drawids[total_entry_count] = total_entry_count;
-						ogl->map_drawcmdsids[total_entry_count] = cmd_ind;
+							if(ogl->bindless) {
+								OglBindlessTextureAddress *texaddr = (OglBindlessTextureAddress *)tex_addresses + cmd_ind * NUM_TEXTURE;
+								if(diffuse) {
+									texaddr[0] = {diffuse->bindless, (f32)diffuse->slice, 0};
+								} else {
+									texaddr[0] = {};
+								}
+								if(normal) {
+									texaddr[1] = {normal->bindless, (f32)normal->slice, 0};
+								} else {
+									texaddr[1] = {};
+								}
+							} else {
+								OglTextureAddress *texaddr = (OglTextureAddress *)tex_addresses + cmd_ind * NUM_TEXTURE;
+								if(diffuse) {
+									texaddr[0] = {diffuse->container_id, (f32)diffuse->slice, 0, 0};
+								} else {
+									texaddr[0] = {};
+								}
+								if(normal) {
+									texaddr[1] = {normal->container_id, (f32)normal->slice, 0, 0};
+								} else {
+									texaddr[1] = {};
+								}
+							}
+							colors[cmd_ind] = instance->color;
 
-						total_entry_count++;
-						entry_ind = entry->next_in_mesh_renderer;
+							OglTriangleMesh *mesh = get_ogl_triangle_mesh(ogl, render, assets, meshr->mesh, fmt);
 
+							DrawElementsIndirectCommand *cmd = ogl->cmds + cmd_ind;
+							cmd->primCount = entry_count;
+							cmd->count = mesh->ind_count;
+							cmd->firstIndex = mesh->ibo_offset;
+							cmd->baseVertex = mesh->vbo_offset; 
+							cmd->baseInstance = base_instance;
+							base_instance += cmd->primCount;
+
+							u32 entry_ind = meshr->first_entry;
+							for(u32 i = 0; i < entry_count; ++i) {
+								RenderEntry *entry = render->render_entries + entry_ind;
+
+								u32 *bone_offset = ogl->map_boneoffset + total_entry_count;
+								ogl->map_boneoffset[total_entry_count] = 0;
+
+								if(entry->bone_transform_offset != INVALID_U32_OFFSET) {
+									ogl->map_boneoffset[total_entry_count] = entry->bone_transform_offset + 1;	
+								}
+
+								OglTransform *map_tr = ogl->map_transforms + total_entry_count;
+								map_tr->model = entry->tr;
+								ogl->map_drawids[total_entry_count] = total_entry_count;
+								ogl->map_drawcmdsids[total_entry_count] = cmd_ind;
+
+								total_entry_count++;
+								entry_ind = entry->next_in_mesh_renderer;
+
+							}
+						}
 					}
 				}
 			}
 		}
-	}
-	kh_assert(total_entry_count < MAX_ENTRIES);
-	kh_assert(render->render_entry_count == total_entry_count);
-	if(ogl->bindless) {
-		glNamedBufferSubData(ogl->ogl_pass[Pass_render_3d_scene].matbuffer, 
-		                     0, sizeof(OglBindlessTextureAddress) * batch_count * NUM_TEXTURE, tex_addresses);
-	} else {
-		glNamedBufferSubData(ogl->ogl_pass[Pass_render_3d_scene].matbuffer,
-		                     0, sizeof(OglTextureAddress) * batch_count * NUM_TEXTURE, tex_addresses);
-	}
-	glNamedBufferSubData(ogl->color_buffer, 0, sizeof(v4) * batch_count, colors);
-	glNamedBufferSubData(ogl->cmds_buffer, 0, sizeof(DrawElementsIndirectCommand) * cmd_count, ogl->cmds);
+		kh_assert(total_entry_count < MAX_ENTRIES);
+		kh_assert(render->entry_count == total_entry_count);
+		if(ogl->bindless) {
+			glNamedBufferSubData(ogl->ogl_pass[Pass_render_3d_scene].matbuffer, 
+			                     0, sizeof(OglBindlessTextureAddress) * batch_count * NUM_TEXTURE, tex_addresses);
+		} else {
+			glNamedBufferSubData(ogl->ogl_pass[Pass_render_3d_scene].matbuffer,
+			                     0, sizeof(OglTextureAddress) * batch_count * NUM_TEXTURE, tex_addresses);
+		}
+		glNamedBufferSubData(ogl->color_buffer, 0, sizeof(v4) * batch_count, colors);
+		glNamedBufferSubData(ogl->cmds_buffer, 0, sizeof(DrawElementsIndirectCommand) * cmd_count, ogl->cmds);
 
-	free(tex_addresses);
-	free(colors);
+		free(tex_addresses);
+		free(colors);
+	}
 }
 
 
 KH_INTERN void
-ogl_render(OglState *ogl, RenderManager *render) {
+ogl_render(OglState *ogl, RenderManager *render, Assets *assets) {
 
-	ogl_update(ogl, render);
+	ogl_update(ogl, render, assets);
 
 	Camera *cam = &render->camera;
 	mat4 vp = cam->view * cam->projection;
@@ -888,7 +1037,7 @@ ogl_render(OglState *ogl, RenderManager *render) {
 
 	// TODO(flo): do not like this
 	if(!ogl->has_skybox && render->has_skybox) {
-		ogl_set_skybox(ogl, render);
+		ogl_set_skybox(ogl, render, assets);
 		ogl->has_skybox = true;
 	}
 
@@ -900,88 +1049,109 @@ ogl_render(OglState *ogl, RenderManager *render) {
 	//glDepthFunc
 	//glDepthMask
 
-	glEnable(GL_DEPTH_TEST);
-	if(ogl->light_count > 0) {
-		OglPass *shadow_pass = &ogl->ogl_pass[Pass_shadow];
-		glBindFramebuffer(GL_FRAMEBUFFER, shadow_pass->framebuffer);
-		glViewport(0, 0, 4096, 4096);
-		glClear(GL_DEPTH_BUFFER_BIT);
-		glUseProgram(ogl->materials[Material_shadowmap].prog_name);
-		// glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BIND_MATERIAL, 0);
-		// OglVertexBuffer *vert_buffer = g_state->vertex_buffers + 0;
-		// glBindVertexBuffer(0, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);	
-		// glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);
-		for(u32 i = 0; i < ogl->used_material_count; ++i) {
-			OglMaterial *oglmat = ogl->materials + ogl->used_materials[i];
-			if(oglmat->render_count > 0) {
-				if(vertex_format != (u32)oglmat->format) {
-					vertex_format = (u32)oglmat->format;
-					OglVertexBuffer *vert_buffer = ogl->vertex_buffers + vertex_format;
-					glBindVertexBuffer(0, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);
-					glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);	
+
+	// TODO(flo): handle animations in the shadow pass!
+	if(render->entry_count > 0) {
+		glEnable(GL_DEPTH_TEST);
+		if(ogl->light_count > 0) {
+			OglPass *shadow_pass = &ogl->ogl_pass[Pass_shadow];
+			glBindFramebuffer(GL_FRAMEBUFFER, shadow_pass->framebuffer);
+			glViewport(0, 0, 4096, 4096);
+			glClear(GL_DEPTH_BUFFER_BIT);
+			glUseProgram(ogl->materials[Material_shadowmap].prog_name);
+			// glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BIND_MATERIAL, 0);
+			// OglVertexBuffer *vert_buffer = g_state->vertex_buffers + 0;
+			// glBindVertexBuffer(ATTRIB_VERTEX_DATA, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);	
+			// glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);
+			for(u32 i = 0; i < ogl->used_material_count; ++i) {
+				OglMaterial *oglmat = ogl->materials + ogl->used_materials[i];
+				if(oglmat->render_count > 0) {
+					if(vertex_format != (u32)oglmat->format) {
+						vertex_format = (u32)oglmat->format;
+						OglVertexBuffer *vert_buffer = ogl->vertex_buffers + vertex_format;
+						if(vert_buffer->skinned) {
+							glBindVertexBuffer(ATTRIB_ANIMATION, vert_buffer->verts.name, vert_buffer->anim_offset,
+							                   vert_buffer->attrib_stride);
+						}
+						glBindVertexBuffer(ATTRIB_VERTEX_DATA, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);
+						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);	
+					}
+					ogl_render_command(oglmat);
 				}
-				ogl_render_command(oglmat);
 			}
 		}
-	}
 
+		if(ogl->zprepass_enabled) {
+			glUseProgram(ogl->materials[Material_zprepass].prog_name);
+			for(u32 i = 0; i < ogl->used_material_count; ++i) {
+				OglMaterial *oglmat = ogl->materials + ogl->used_materials[i];
+				if(oglmat->render_count > 0) {
+					if(vertex_format != (u32)oglmat->format) {
+						vertex_format = (u32)oglmat->format;
+						OglVertexBuffer *vert_buffer = ogl->vertex_buffers + vertex_format;
+						glBindVertexBuffer(ATTRIB_VERTEX_DATA, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);
+						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);	
+					}
+					ogl_render_command(oglmat);
+				}
+			}
+			glDepthFunc(GL_LEQUAL);
+		}
+	}
 	OglPass *scene_pass = &ogl->ogl_pass[Pass_render_3d_scene];
 	glBindFramebuffer(GL_FRAMEBUFFER, scene_pass->framebuffer);
 	glViewport(0,0,render->width,render->height);
 	glClearColor(0.1f,0.1f,0.1f,1.0f);
 	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
-	if(ogl->zprepass_enabled) {
-		glUseProgram(ogl->materials[Material_zprepass].prog_name);
+	// for(u32 i = 0; i < render->entry_count; ++i) {
+	// 	RenderEntry *entry = render->render_entries + i;
+	// 	if(entry->bone_transform_offset != INVALID_U32_OFFSET) {
+	// 		mat4 *first = render->bone_tr.data + entry->bone_transform_offset;
+	// 		for(u32 j = 0; j < 97; ++j) {
+	// 			mat4 local_tr = first[j];
+	// 			mat4 tr = local_tr * entry->tr;
+	// 			v3 pos = kh_vec3(tr.c3);
+	// 			ogl_DEBUG_draw_axis(ogl->materials[Material_notexture].prog_name, pos, pos + kh_vec3(tr.c0), pos + kh_vec3(tr.c1), pos + kh_vec3(tr.c2), 1.0f);
+
+
+	// 		}
+
+	// 	}
+
+	// }
+
+	if(render->entry_count > 0) {
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BIND_MATERIAL, scene_pass->matbuffer);
+		// glDrawBuffer(GL_COLOR_ATTACHMENT1);
+		vertex_format = 0xFFFFFFFF;
 		for(u32 i = 0; i < ogl->used_material_count; ++i) {
 			OglMaterial *oglmat = ogl->materials + ogl->used_materials[i];
 			if(oglmat->render_count > 0) {
 				if(vertex_format != (u32)oglmat->format) {
 					vertex_format = (u32)oglmat->format;
 					OglVertexBuffer *vert_buffer = ogl->vertex_buffers + vertex_format;
-					glBindVertexBuffer(0, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);
-					glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);	
+					if(vert_buffer->skinned) {
+						glBindVertexBuffer(ATTRIB_ANIMATION, vert_buffer->verts.name, vert_buffer->anim_offset, vert_buffer->attrib_stride);
+					}
+					glBindVertexBuffer(ATTRIB_VERTEX_DATA, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);
+					glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);
 				}
-				ogl_render_command(oglmat);
+				ogl_render_material(oglmat);
 			}
-		}
-		glDepthFunc(GL_LEQUAL);
+		}	
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	}
 
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BIND_MATERIAL, scene_pass->matbuffer);
-	// glDrawBuffer(GL_COLOR_ATTACHMENT1);
-	vertex_format = 0xFFFFFFFF;
-	for(u32 i = 0; i < ogl->used_material_count; ++i) {
-		OglMaterial *oglmat = ogl->materials + ogl->used_materials[i];
-		if(oglmat->render_count > 0) {
-			if(vertex_format != (u32)oglmat->format) {
-				vertex_format = (u32)oglmat->format;
-				OglVertexBuffer *vert_buffer = ogl->vertex_buffers + vertex_format;
-				glBindVertexBuffer(0, vert_buffer->verts.name, vert_buffer->attrib_offset, vert_buffer->attrib_stride);
-				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vert_buffer->inds.name);
-			}
-			ogl_render_material(oglmat);
-		}
-	}
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
 	if(ogl->has_skybox) {
 		glDepthFunc(GL_LEQUAL);
 		OglPass *skybox_pass = &ogl->ogl_pass[Pass_skybox];
 		glUseProgram(ogl->materials[Material_skybox].prog_name);
-		glBindVertexBuffer(0, skybox_pass->vertexbuffer, 0, 3 * sizeof(GLfloat));
+		glBindVertexBuffer(ATTRIB_VERTEX_DATA, skybox_pass->vertexbuffer, 0, 3 * sizeof(GLfloat));
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 		glDepthFunc(GL_LESS);
 	}
 }
 
-KH_INTERN void
-ogl_exit(OglState *ogl) {
-	for(u32 i = 0; i < ogl->texture_count; ++i) {
-		OglTexture2D *texture = ogl->textures + i;
-	}
-
-	for(u32 i = 0; i < ogl->texture_container_count; ++i) {
-		OglTexture2DContainer *container = ogl->texture_containers + i; 
-	}
-}
+// TODO(flo): OGL exit

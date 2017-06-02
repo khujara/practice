@@ -74,6 +74,11 @@ enum FileCreation
 	FileCreation_override,
 };
 
+struct FileContents {
+	u32 size;
+	void *memory;
+};
+
 #define file_error(file_hdl) file_hdl->error
 
 typedef FileGroupOfType platform_get_all_files_of_type(FileType type, struct StackAllocator *memstack);
@@ -104,7 +109,6 @@ typedef struct ButtonState
 {
 	u32 down_count;
 	b32 down;
-	b32 went_down;
 } ButtonState;
 
 typedef struct Input
@@ -135,6 +139,23 @@ typedef void platform_complete_all_queue_works(struct WorkQueue *queue);
 // NOTE(flo): SHARED
 // --------------------------
 
+
+#ifdef KH_IN_DEVELOPMENT
+	typedef void LoadTex2dFile(struct AssetContents *contents, struct StackAllocator *allocator, 
+	                           void *file_contents, u32 file_size);
+	typedef void LoadFontFile(struct AssetContents *contents, struct StackAllocator *allocator, 
+	                          void *file_contents, u32 file_size);
+	typedef void LoadTriMeshFile(struct AssetContents *contents, struct StackAllocator *allocator, 
+	                             void *file_contents, u32 file_size, enum VertexFormat format);
+	typedef void LoadSkeletonFile(struct AssetContents *contents, struct StackAllocator *allocator, 
+	                              void *file_contents, u32 file_size);
+	typedef void LoadSkinFile(struct AssetContents *contents, struct StackAllocator *allocator, 
+	                          void *file_contents, u32 file_size);
+	typedef void LoadAnimationFile(struct AssetContents *contents, struct StackAllocator *allocator, 
+	                               void *file_contents, u32 file_size);
+	typedef void InitAssetLoader(struct Platform *platform);
+#endif
+
 typedef struct Platform
 {
 	platform_get_all_files_of_type *get_all_files_of_type;
@@ -153,6 +174,17 @@ typedef struct Platform
 
 	platform_add_work_to_queue *add_work_to_queue;
 	platform_complete_all_queue_works *complete_all_queue_works;
+
+#ifdef KH_IN_DEVELOPMENT
+	InitAssetLoader *init_asset_import;
+	LoadTex2dFile *load_tex2d_directly;
+	LoadFontFile *load_font_directly;
+	LoadTriMeshFile *load_trimesh_directly;
+	LoadSkeletonFile *load_skeleton_directly;
+	LoadSkinFile *load_skin_directly;
+	LoadAnimationFile *load_animation_directly;
+#endif
+
 } Platform;
 
 typedef struct ProgramMemory
@@ -168,8 +200,11 @@ typedef struct ProgramMemory
 } ProgramMemory;
 
 typedef void kh_update(ProgramMemory *memory, Input *input, struct RenderManager *render, struct Assets *assets, f32 dt);
+
 extern Platform g_platform;
 
+
+#define array_count(arr) (sizeof(arr) / sizeof(arr)[0])
 #define KH_UINT_TO_PTR(x) ((void *)(uintptr(x)))
 #define KH_PTR_TO_UINT(x) ((uintptr)(x))
 #define KH_SWAP(a, b, type, tmp) type *(tmp) = (a); (a) = (b); (b) = (tmp);
@@ -177,6 +212,8 @@ extern Platform g_platform;
 // #define KH_ALIGNPTR(x, mask) (kh_uint_to_ptr((kh_ptr_to_uint((u8*)(x) + (mask-1)) & ~(mask-1))))
 // #define KH_TEST(type, member, parent) &(((type *)0)->member) - (parent **)0
 #define KH_OFFSETOF(type, member) (umm)&(((type*)0)->member)
+#define KH_SIZEOF(type, member) sizeof(((type *)0)->member)
+#define KH_ARRAYCOUNT(type, member) array_count(((type *)0)->member)
 #define KH_ALIGN_POW2(val, align) ((val + (align - 1)) & ~(align - 1))
 #define KH_ALIGN4(val) ((val + 3) & ~3)
 #define KH_ALIGN8(val) ((val + 7) & ~7)
@@ -208,6 +245,7 @@ extern Platform g_platform;
 #define KH_MATH_IMPLEMENTATION
 #include "kh_math.h"
 #include "kh_asset_format.h"
+#include "kh_asset_file.h"
 #include "kh_memory.h"
 #include "kh_strings.h"
 #include "kh_data_structures.h"
@@ -231,12 +269,35 @@ enum MaterialType {
 	Material_rendertarget,
 	Material_phong,
 	Material_normalmap,
+	Material_normalmapskinned,
 	Material_shadowmap,
 	Material_skybox,
 	Material_notexture,
 	Material_zprepass,
 	Material_count,
 };
+
+KH_INTERN FileContents
+get_contents_from_file(char *filename, StackAllocator *mem, StackAllocator *file_mem_init = 0) {
+	FileContents res = {};
+	StackAllocator local_mem = {};
+
+	StackAllocator *file_mem = (file_mem_init) ? file_mem_init : &local_mem;
+	FileHandle f = g_platform.open_file(filename, file_mem, FileAccess_read, FileCreation_only_open);
+	if(!f.error) {
+		u32 size = g_platform.get_file_size(&f);
+		if(size > 0) {
+			res.size = size;
+			res.memory = kh_push(mem, size);
+			g_platform.read_bytes_of_file(&f, 0, size, res.memory);
+		}
+	}
+	if(!file_mem_init) {
+		g_platform.close_file(&f);
+		kh_clear(&local_mem);
+	}
+	return(res);
+}
 
 #define KH_PLATFORM_H
 #endif // KH_PLATFORM_H

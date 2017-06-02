@@ -1,5 +1,5 @@
 inline mat4
-from_euler_angle_to_object_mat4x4(euler_angle e)
+from_euler_angle_to_object_mat4(euler_angle e)
 {
 	mat4 res;
 
@@ -19,9 +19,9 @@ from_euler_angle_to_object_mat4x4(euler_angle e)
 }
 
 inline mat4
-from_euler_angle_to_world_mat4x4(euler_angle e)
+from_euler_angle_to_world_mat4(euler_angle e)
 {
-	mat4 res = kh_transpose_mat4(from_euler_angle_to_object_mat4x4(e));
+	mat4 res = kh_transpose_mat4(from_euler_angle_to_object_mat4(e));
 	return(res);
 }
 #if 0
@@ -34,7 +34,7 @@ from_mat4x4_to_euler_angle(mat4 m)
 #endif
 
 inline mat4
-from_quat_to_mat4x4(quat q)
+from_quat_to_mat4(quat q)
 {
 	mat4 res;
 
@@ -57,7 +57,7 @@ from_quat_to_mat4x4(quat q)
 }
 
 inline mat3
-from_quat_to_mat3x3(quat q)
+from_quat_to_mat3(quat q)
 {
 	mat3 res;
 
@@ -79,7 +79,7 @@ from_quat_to_mat3x3(quat q)
 }
 
 inline quat
-from_mat4x4_to_quat(mat4 m)
+from_mat4_to_quat(mat4 m)
 {
 	quat res;
 

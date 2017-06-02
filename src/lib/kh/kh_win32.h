@@ -467,3 +467,29 @@ win32_write_bytes_to_file(FileHandle *file_hdl, u64 offset, u64 size, void *buff
 		}
 	}
 }
+
+
+struct Win32DebugTimer {
+	f64 inv_freq;
+	LARGE_INTEGER start;
+	char txt[64];
+
+	Win32DebugTimer(char *str) {
+		OutputDebugStringA(str);
+
+		LARGE_INTEGER freq;
+		QueryPerformanceFrequency(&freq);
+		inv_freq = 1.0f / (f64)freq.QuadPart;
+
+		QueryPerformanceCounter(&start);
+
+	}
+
+	~Win32DebugTimer() {
+		LARGE_INTEGER end;
+		QueryPerformanceCounter(&end);
+		f32 us = win32_get_seconds_elapsed(start, end, inv_freq);
+		stbsp_sprintf(txt, "%fms, %ffps \n", us * 1000.0f, 1.0f / us);
+		OutputDebugStringA(txt);
+	}
+};

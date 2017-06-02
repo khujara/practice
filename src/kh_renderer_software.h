@@ -23,12 +23,12 @@ struct TriMeshRenderWork {
 	f32 min_y;
 	f32 max_y;
 
-
-	DataCache *cache;
+	Assets *assets;
 	DirectionalLight *light;
 	
-	u32 mesh_off;
-	u32 diff_off;
+	mat4 *bone_transformations;
+	AssetID mesh_id;
+	AssetID diff_id;
 	VertexAttribute attrib;
 	mat4 mvp;
 	mat4 wld;
@@ -43,8 +43,8 @@ struct DepthBufferClearWork {
 
 struct PixelsBufferClearWork {
 	SoftwarePixelsBuffer *target;
-	u32 min_y, max_y;
-	v4 color;
+	u32 start, end;
+	u32 color;
 };
 
 #define KH_RENDERER_SOFTWARE_H

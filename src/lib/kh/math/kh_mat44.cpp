@@ -87,25 +87,25 @@ operator*(mat4 a, f32 b)
 }
 
 inline v3
-mul_normal(mat4 a, v3 b)
+operator*(mat4 a, v3 b)
+{
+	// NOTE(flo) : Assume w == 1 so b is a vector not a dir
+	v3 res;
+	res.x = b.x * a.m00 + b.y * a.m10 + b.z * a.m20 + a.m30;
+	res.y = b.x * a.m01 + b.y * a.m11 + b.z * a.m21 + a.m31;
+	res.z = b.x * a.m02 + b.y * a.m12 + b.z * a.m22 + a.m32;
+
+	return(res);
+}
+
+inline v3
+kh_mul_mat4_dir(mat4 a, v3 b)
 {
 	v3 res;
 
 	res.x = b.x * a.m00 + b.y * a.m10 + b.z * a.m20;
 	res.y = b.x * a.m01 + b.y * a.m11 + b.z * a.m21;
 	res.z = b.x * a.m02 + b.y * a.m12 + b.z * a.m22;
-
-	return(res);
-}
-
-inline v3
-operator*(mat4 a, v3 b)
-{
-	// NOTE(flo) : Assume w == 1 so b is a vector not a point
-	v3 res;
-	res.x = b.x * a.m00 + b.y * a.m10 + b.z * a.m20 + 1.0f * a.m30;
-	res.y = b.x * a.m01 + b.y * a.m11 + b.z * a.m21 + 1.0f * a.m31;
-	res.z = b.x * a.m02 + b.y * a.m12 + b.z * a.m22 + 1.0f * a.m32;
 
 	return(res);
 }
@@ -120,6 +120,22 @@ operator*(mat4 a, v4 b)
 	res.w = b.x * a.m03 + b.y * a.m13 + b.z * a.m23 + b.w * a.m33;
 
 	return(res);
+}
+
+inline mat4
+operator+(mat4 a, mat4 b) {
+	mat4 res;
+	res.m00 = a.m00 + b.m00; res.m01 = a.m01 + b.m01; res.m02 = a.m02 + b.m02; res.m03 = a.m03 + b.m03;
+	res.m10 = a.m10 + b.m10; res.m11 = a.m11 + b.m11; res.m12 = a.m12 + b.m12; res.m13 = a.m13 + b.m13;
+	res.m20 = a.m20 + b.m20; res.m21 = a.m21 + b.m21; res.m22 = a.m22 + b.m22; res.m23 = a.m23 + b.m23;
+	res.m30 = a.m30 + b.m30; res.m31 = a.m31 + b.m31; res.m32 = a.m32 + b.m32; res.m33 = a.m33 + b.m33;
+	return(res);
+}
+
+inline mat4 &
+operator+=(mat4 &a, mat4 b) {
+	a = a + b;
+	return(a);
 }
 
 inline mat4
@@ -185,7 +201,7 @@ inline v3
 kh_get_translation_mat4(mat4 m)
 {
 	v3 res;
-	res = m.c3.xyz;
+	res = kh_vec3(m.c3);
 	return(res);
 }
 
@@ -193,20 +209,22 @@ inline mat3
 kh_get_rot_mat4(mat4 m)
 {
 	mat3 res;
-	res.c0 = m.c0.xyz;
-	res.c1 = m.c1.xyz;
-	res.c2 = m.c2.xyz;
+	res.c0 = kh_vec3(m.c0);
+	res.c1 = kh_vec3(m.c1);
+	res.c2 = kh_vec3(m.c2);
 	return(res);
 }
 
 inline void
 kh_set_translation_mat4(mat4 *m, v3 tr)
 {
-	m->c3.xyz = tr;
+	m->c3.x = tr.x;
+	m->c3.y = tr.y;
+	m->c3.z = tr.z;
 }
 
 inline mat4
-kh_inverse_mat4(mat4 m)
+kh_inverse_orthogonal_mat4(mat4 m)
 {
 	mat4 res;
 
@@ -220,6 +238,30 @@ kh_inverse_mat4(mat4 m)
 
 	res.c3 = kh_vec4(-tr, 1);
 
+	return(res);
+}
+
+inline void
+kh_cofactors_mat4(mat4 m) {
+	NOT_IMPLEMENTED;
+}
+
+inline void
+kh_minors_mat4(mat4 m) {
+	NOT_IMPLEMENTED;
+}
+
+inline f32
+kh_determinant_mat4(mat4 m) {
+	float res;
+	NOT_IMPLEMENTED;
+	return(res);
+}
+
+inline mat4
+kh_inverse_mat4(mat4 m) {
+	mat4 res = {};
+	NOT_IMPLEMENTED;
 	return(res);
 }
 
@@ -247,4 +289,14 @@ kh_rotate_around_mat4(f32 a, v3 v)
 	res.c3 = kh_vec4(0,0,0,1);
 
 	return (res);
+}
+
+inline mat4
+kh_get_mat4_from_sqt(v3 pos, quat rot, v3 scale) {
+	mat4 res = from_quat_to_mat4(rot);
+	res.c0.x *= scale.x; res.c0.y *= scale.x; res.c0.z *= scale.x;
+	res.c1.x *= scale.y; res.c1.y *= scale.y; res.c1.z *= scale.y;
+	res.c2.x *= scale.z; res.c2.y *= scale.z; res.c2.z *= scale.z;
+	res.c3 = kh_vec4(pos, 1.0f);
+	return(res);
 }

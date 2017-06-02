@@ -1,8 +1,6 @@
 #ifndef KH_DATA_STRUCTURES_H
 #define KH_DATA_STRUCTURES_H
 
-#define array_count(arr) (sizeof(arr) / sizeof(arr)[0])
-
 typedef struct SortEntry
 {
 	f32 key;
