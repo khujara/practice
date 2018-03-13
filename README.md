@@ -15,20 +15,19 @@ Features
 	- Phong Lighting
 - Asset packaging tool
 - Skeletal Animation import and display
+- Raytracing (with texture mapping and skybox)
 
 ### In Progress
 
-- IK system
+- PBR rendering with IBL generation
 - Memory library improvements (more allocators : general purpose (ft LRU), linked/free list (pool) allocator, buddy memory)
-- Collision Detection (GJK)
 
 ### Future plans
 
-- Math visualization tool
-- PBR rendering
-- Raytracer
 - Scene graph and spatial partitioning
 - Fluid simulation
+- IK system and curve-based animations
+- Collision Detection (GJK)
 
 Build and Requirements
 ===
@@ -48,13 +47,16 @@ other 64 bits OS with SDL
 
 ### Building
 
-1- cd src, build.bat
-2- make sure that the asset package (link below), the 'shaders' folder and the executable are in the same directory
+1- cd src, build.bat  
+2- copy data folder (link below) to "practice" main directory  
+3- launch asset_package.bat  
+4- launch practice.bat  
 
 ### Dependencies
 
 Assimp 3.1.1  
 STB libraries (stb_image, stb_rectpack, stb_sprintf, stb_truetype)  
+SDL2 (for sdl build)
 
 ## Keyboard shortcuts :
 - 'S' : Switch from OpenGL 4.5 renderer to Software renderer
