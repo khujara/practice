@@ -5,22 +5,63 @@
 // static u32 g_rasterized_tri;
 
 inline void
-debug_draw_texture(SoftwarePixelsBuffer *target, Texture2D *tex, u8 *data, v3 pos) {
-	u32 min_x = (u32)pos.x;
-	u32 min_y = (u32)pos.y;
-	u32 max_x = min_x + tex->width;
-	u32 max_y = min_y + tex->height;
+debug_draw_texture(SoftwarePixelsBuffer *target, Assets *assets, AssetID id, v2i pos) {
 
-	u8 *dst_row = (u8 *)target->memory + min_x * FRAME_BUFFER_BYTES_PER_PIXEL + min_y * target->pitch;;
-	u8 *src_row = (u8 *)data;
-	for(u32 y = min_y; y < max_y; ++y) {
-		u32 *dst_pixel = (u32 *)dst_row;;
-		for(u32 x = min_x; x < max_x; ++x) {
-			u8 b = *src_row++;
-			*dst_pixel++ = ((u32)(b << 24) | (u32)(b << 16) | (u32)(b << 8) | (u32)(b << 0));
+	b32 loaded = ask_for_asset(assets, id);
+
+	if(loaded) {
+		LoadedAsset asset = get_loaded_asset(assets, id, AssetType_tex2d);
+		Texture2D tex = asset.type->tex2d;
+		kh_assert(tex.bytes_per_pixel == 3);
+
+		u32 src_pitch = tex.bytes_per_pixel * tex.width;
+
+		u32 min_x = pos.x;
+		u32 min_y = pos.y;
+		u32 max_x = kh_min_u32(target->w, min_x + tex.width);
+		u32 max_y = kh_min_u32(target->h, min_y + tex.height);
+
+		u8 *dst_row = (u8 *)target->memory + min_x * FRAME_BUFFER_BYTES_PER_PIXEL + min_y * target->pitch;;
+		u8 *src_row = asset.data;
+		for(u32 y = min_y; y < max_y; ++y) {
+			u32 *dst_pixel = (u32 *)dst_row;
+			u8 *src_pixel = src_row;
+			for(u32 x = min_x; x < max_x; ++x) {
+				u8 r = *src_pixel++;
+				u8 g = *src_pixel++;
+				u8 b = *src_pixel++;
+				*dst_pixel++ = ((u32)(0xFF << 24) | (u32)(b << 16) | (u32)(g << 8) | (u32)(r << 0));
+			}
+
+			dst_row += target->pitch;
+			src_row += src_pitch;
 		}
+	}
 
-		dst_row += target->pitch;
+}
+
+inline void
+debug_draw_font_texture(SoftwarePixelsBuffer *target, Assets *assets, AssetID id, v2i pos) {
+
+	b32 loaded = ask_for_asset(assets, id);
+	if(loaded) {
+		LoadedAsset asset = get_loaded_asset(assets, id, AssetType_font);
+		FontRange font = asset.type->font;
+
+		u32 min_x = pos.x;
+		u32 min_y = pos.y;
+		u32 max_x = min_x + font.tex_w;
+		u32 max_y = min_y + font.tex_h;
+		u8 *dst_row = (u8 *)target->memory + min_x * FRAME_BUFFER_BYTES_PER_PIXEL + min_y * target->pitch;
+		u8 *texture = asset.data;
+		for(u32 y = min_y; y < max_y; ++y) {
+			u32 *dst_pixel = (u32 *)dst_row;
+			for(u32 x = min_x; x < max_x; ++x) {
+				u8 src = *texture++;
+				*dst_pixel++ = ((u32)(src << 24) | (u32)(src << 16) | (u32)(src << 8) | (u32)(src << 0));
+			}
+			dst_row += target->pitch;
+		}
 	}
 }
 
@@ -178,6 +219,7 @@ tri_mesh_render(TriMeshRenderWork *task) {
 			__m128 c3_2 = _mm_set1_ps(0.0f);
 
 			for(u32 j = 0; j < MAX_JOINTS_PER_VERTEX; ++j) {
+
 				if(weight_0[j] > 0.0f) {
 					mat4 *final_tr = bone_transformations + ids_0[j];
 					__m128 w = _mm_set1_ps(weight_0[j]);
@@ -405,7 +447,7 @@ tri_mesh_render(TriMeshRenderWork *task) {
 							in[vert_i].normal_y = _mm_mul_ps(in[vert_i].normal_y, inverse_length);
 							in[vert_i].normal_z = _mm_mul_ps(in[vert_i].normal_z, inverse_length);
 						}
-						rasterize_triangle_SSE_4x4(target, assets, task->diff_id, task->color, in[0], in[1], in[2], task->light);
+						rasterize_triangle_SSE_4x4(target, assets, task->diff_id, task->color, in[0], in[1], in[2], task->light_dir);
 						tri_count = 0;
 					}
 				}
@@ -453,7 +495,7 @@ tri_mesh_render(TriMeshRenderWork *task) {
 			in[vert_i].normal_z = _mm_mul_ps(in[vert_i].normal_z, inverse_length);
 
 		}
-		rasterize_triangle_SSE_4x4(target, assets, task->diff_id, task->color, in[0], in[1], in[2], task->light, tri_count);
+		rasterize_triangle_SSE_4x4(target, assets, task->diff_id, task->color, in[0], in[1], in[2], task->light_dir, tri_count);
 	}
 }
 
@@ -530,8 +572,11 @@ software_render(SoftwareFrameBuffer *dst, Assets *assets, RenderManager *render,
 	mat4 proj = render->camera.projection;
 	mat4 vp = view * proj;
 
-	kh_assert(render->light_count > 0);
-	DirectionalLight *light = render->lights + 0;
+	v3 light_dir = kh_vec3(0,0,0);
+	if(render->light_count > 0) {
+		Light *light = render->lights + 0;
+		light_dir = -light->dir;
+	}
 
 	// TODO(flo) : really implement this
 	u32 first_free_work = 0;
@@ -539,65 +584,77 @@ software_render(SoftwareFrameBuffer *dst, Assets *assets, RenderManager *render,
 	for(VertexBuffer *buffer = render->first_vertex_buffer; buffer; buffer = buffer->next) {
 		VertexFormat format = buffer->format;
 		VertexAttribute attrib = get_vertex_attribute(format);
-		for(Material *mat = buffer->first; mat; mat = mat->next) {
-			for(MaterialInstance *instance = mat->first; instance; instance = instance->next) {
+		for(Shading *shading = buffer->first; shading; shading = shading->next) {
+			kh_assert(shading->format == format);
 
-				v4 color = instance->color;
-				color.r *= color.a;
-				color.g *= color.a;
-				color.b *= color.a;
-				for(MeshRenderer *meshr = instance->first; meshr; meshr = meshr->next) {
+			for(Material *mat = shading->first; mat; mat = mat->next) {
+				// v4 color = kh_vec4(kh_vec3(mat->color) * mat->color.a, mat->color.a);
+				AssetID texture_id = {0};
+				v4 color = kh_vec4(1,1,1,1);
+				if(shading->texture_count) {
+					AssetID *textures = (AssetID *)(mat + 1);
+					kh_assert(textures);
+					texture_id = textures[0];
+				} else {
+					texture_id = {get_or_create_empty_texture(assets, 1, 1, "white")};
+					set_texture_pixel_color(assets, texture_id, 0xFF, 0xFF, 0xFF);
+					if(shading->mat_type == Type_Material_F4) {
+						color = *(v4 *)(mat + 1);
+					}
+				}
+				for(MeshRenderer *meshr = mat->first; meshr; meshr = meshr->next) {
 
-					u32 entry_ind = meshr->first_entry;
-					const TriangleMesh mesh = get_trimesh(assets, meshr->mesh);
-					kh_assert(mesh.format == format);
+					if(meshr->entry_count > 0) {
+						u32 entry_ind = meshr->first_entry;
+						const TriangleMesh mesh = get_trimesh(assets, meshr->mesh);
+						kh_assert(mesh.format == format);
 
-					for(u32 i = 0; i < meshr->entry_count; ++i) {
+						for(u32 i = 0; i < meshr->entry_count; ++i) {
 
-						RenderEntry *entry = render->render_entries + entry_ind;
+							RenderEntry *entry = render->render_entries + entry_ind;
 
-						mat4 wld = entry->tr;
-						mat4 mvp = wld * vp;
-						mat4 *bone_transformations = 0;
-						if(entry->bone_transform_offset < render->bone_tr.count) {
-							bone_transformations = render->bone_tr.data + entry->bone_transform_offset;
-						}
-
+							mat4 wld = entry->tr;
+							mat4 mvp = wld * vp;
+							mat4 *bone_transformations = 0;
+							if(entry->bone_transform_offset < render->joint_tr.count) {
+								bone_transformations = render->joint_tr.data + entry->bone_transform_offset;
+							}
 #if 1
-						for(u32 work_i = 0; work_i < 4; ++work_i) {
-							kh_assert(first_free_work <= work_count);
-							TriMeshRenderWork *work = works + first_free_work++;
-							work->bone_transformations = bone_transformations;
-							work->light = light;
-							work->mesh_id = meshr->mesh;
-							work->diff_id = instance->diffuse;
-							work->attrib = attrib;
-							work->mvp = mvp;
-							work->wld = wld;
-							work->color = color;
+							for(u32 work_i = 0; work_i < 4; ++work_i) {
+								kh_assert(first_free_work <= work_count);
+								TriMeshRenderWork *work = works + first_free_work++;
+								work->bone_transformations = bone_transformations;
+								work->light_dir = light_dir;
+								work->mesh_id = meshr->mesh;
+								work->diff_id = texture_id;
+								work->attrib = attrib;
+								work->mvp = mvp;
+								work->wld = wld;
+								work->color = color;
 							// TODO(flo): PixelsBuffer and DepthBuffer are not thread safe
-							g_platform.add_work_to_queue(queue, tri_mesh_render_sched, work);
-						}
+								g_platform.add_work_to_queue(queue, tri_mesh_render_sched, work);
+							}
 #else
 
-						TriMeshRenderWork work;
-						work.target = dst;
-						work.min_x = 0;
-						work.max_x = (f32)render->width;
-						work.min_y = 0;
-						work.max_y = (f32)render->height;
-						work.assets = assets;
-						work.bone_transformations = bone_transformations;
-						work.light = light;
-						work.mesh_id = meshr->mesh;
-						work.diff_id = instance->diffuse;
-						work.attrib = attrib;
-						work.mvp = mvp;
-						work.wld = wld;
-						work.color = color;
-						tri_mesh_render(&work);
+							TriMeshRenderWork work;
+							work.target = dst;
+							work.min_x = 0;
+							work.max_x = (f32)render->width;
+							work.min_y = 0;
+							work.max_y = (f32)render->height;
+							work.assets = assets;
+							work.bone_transformations = bone_transformations;
+							work.light = light_dir;
+							work.mesh_id = meshr->mesh;
+							work.diff_id = texture_id;
+							work.attrib = attrib;
+							work.mvp = mvp;
+							work.wld = wld;
+							work.color = color;
+							tri_mesh_render(&work);
 #endif
-						entry_ind = entry->next_in_mesh_renderer;
+							entry_ind = entry->next_in_mesh_renderer;
+						}
 					}
 				}
 			}

@@ -9,8 +9,7 @@ kh_quat(f32 x, f32 y, f32 z, f32 w) {
 }
 
 inline quat
-quat_identity()
-{
+quat_identity() {
 	quat res;
 	res.n = V3_ZERO;
 	res.w = 1.0f;
@@ -18,24 +17,18 @@ quat_identity()
 }
 
 inline quat
-construct_quat(v3 n, f32 a)
-{
+construct_quat(v3 n, f32 a) {
 	quat res;
-
 	a = a * 0.5f;
-
 	f32 w = kh_cos_f32(a);
 	f32 s = kh_sin_f32(a);
-
 	res.n = n * s;
 	res.w = w;
-
 	return(res);
 }
 
 inline quat
-operator*(quat a, quat b)
-{
+operator*(quat a, quat b) {
 	quat res;
 
 	res.x = a.w*b.x + b.w*a.x + a.y*b.z - a.z*b.y;
@@ -49,8 +42,7 @@ operator*(quat a, quat b)
 }
 
 inline quat
-operator*(quat a, f32 b)
-{
+operator*(quat a, f32 b) {
 	quat res;
 	res.n = a.n*b;
 	res.w = a.w*b;
@@ -58,15 +50,13 @@ operator*(quat a, f32 b)
 }
 
 inline quat
-operator*(f32 a, quat b)
-{
+operator*(f32 a, quat b) {
 	quat res = b * a;
 	return(res);
 }
 
 inline quat
-operator+(quat a, quat b)
-{
+operator+(quat a, quat b) {
 	quat res;
 	res.x = a.x + b.x;
 	res.y = a.y + b.y;
@@ -76,8 +66,7 @@ operator+(quat a, quat b)
 }
 
 inline quat
-operator-(quat a, quat b)
-{
+operator-(quat a, quat b) {
 	quat res;
 	res.x = a.x - b.x;
 	res.y = a.y - b.y;
@@ -95,8 +84,7 @@ negate(quat a) {
 }
 
 inline quat
-conjugate(quat a)
-{
+conjugate(quat a) {
 	quat res;
 	res.n = a.n;
 	res.w = -a.w;
@@ -104,29 +92,25 @@ conjugate(quat a)
 }
 
 inline f32
-dot(quat a, quat b)
-{
+dot(quat a, quat b) {
 	f32 res = a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w;
 	return(res);
 }
 
 inline f32
-length(quat a)
-{
+length(quat a) {
 	f32 res = kh_sqrt_f32(dot(a, a));
 	return(res);
 }
 
 inline quat
-difference(quat a, quat b)
-{
+difference(quat a, quat b) {
 	quat res = b * conjugate(a);
 	return(res);
 }
 
 inline quat
-normalize(quat a)
-{
+normalize(quat a) {
 	f32 il = 1.0f / length(a);
 	quat res = a * il;
 	return(res);
@@ -149,8 +133,7 @@ normalize_or_identity(quat *a) {
 }
 
 inline quat 
-kh_mix_quat(quat a, quat b, f32 f, f32 t)
-{
+kh_mix_quat(quat a, quat b, f32 f, f32 t) {
 	quat res;
 	res.x = f * a.x + t * b.x;
 	res.y = f * a.y + t * b.y;
@@ -160,16 +143,13 @@ kh_mix_quat(quat a, quat b, f32 f, f32 t)
 }
 
 inline quat
-kh_mix_quat(quat a, quat b, f32 t)
-{
+kh_mix_quat(quat a, quat b, f32 t) {
 	quat res = kh_mix_quat(a, b, 1.0f - t, t);
 	return(res);
 }
 
 inline v3
-rotate(v3 v, quat q)
-{
-
+rotate(v3 v, quat q) {
 	// quat p;
 	// p.n = v;
 	// p.w = 0;
@@ -240,8 +220,7 @@ kh_slerp_quat(quat a, quat b, f32 t) {
 }
 
 inline v3
-slerp(v3 a, v3 b, f32 t)
-{
+slerp(v3 a, v3 b, f32 t) {
 	f32 d = kh_dot_v3(a, b);
 
 	d = kh_clamp_f32(-1.0f, 1.0f, d);
@@ -263,8 +242,7 @@ slerp(v3 a, v3 b, f32 t)
 }
 
 inline quat
-kh_nlerp_quat(quat a, quat b, f32 t)
-{
+kh_nlerp_quat(quat a, quat b, f32 t) {
 	quat res = kh_mix_quat(a, b, t);
 	normalize_or_identity(&res);
 
@@ -275,8 +253,7 @@ kh_nlerp_quat(quat a, quat b, f32 t)
 // http://zeuxcg.org/2016/05/05/optimizing-slerp/
 // NOTE(flo): this is for constant velocity in our interpolation
 inline quat
-correct_nlerp(quat a, quat b, f32 t)
-{
+correct_nlerp(quat a, quat b, f32 t) {
 	f32 dt = dot(a, b);
 	f32 d = kh_abs_f32(dt);
 	f32 k = d * (d * 0.167127f - 0.631176f) + 0.461218f;

@@ -6,8 +6,7 @@
 // TODO(flo): we certainly need to output cpp files (at least for debugging)
 // http://www.tutorialspoint.com/data_structures_algorithms/expression_parsing.htm
 
-enum TokenType
-{
+enum TokenIdentifier {
 	Token_unknown,
 	Token_open_parenthesis,
 	Token_close_parenthesis,
@@ -38,7 +37,7 @@ enum TokenType
 	Token_tilde,
 	Token_caret,
 	Token_backquote,
-
+	Token_point,
 
 
 	Token_string,
@@ -49,31 +48,27 @@ enum TokenType
 	Token_end_of_file,
 };
 
-struct Token
-{
- 	TokenType type;
+struct Token {
+	TokenIdentifier type;
 	size_t text_length;
 	char *text;
 };
 
-struct StringTokenizer
-{
-	// TokenType last_token_type;
+struct StringTokenizer {
+	// TokenIdentifier last_token_type;
 	char *pos;
 };
 
-inline bool
-end_of_line(char c)
-{
-	bool res = ((c == '\n') ||
+inline b32
+end_of_line(char c) {
+	b32 res = ((c == '\n') ||
 		(c == '\r'));
 	return(res);
 }
 
-inline bool
-white_space(char c)
-{
-	bool res = ((c == ' ') ||
+inline b32
+white_space(char c) {
+	b32 res = ((c == ' ') ||
 		(c == '\t') ||
 		(c == '\v') ||
 		(c == '\f') ||
@@ -81,73 +76,79 @@ white_space(char c)
 	return(res);
 }
 
-inline bool
-alphabetic(char c)
-{
-	bool res = (((c >= 'a') && (c <= 'z')) ||
+inline b32
+alphabetic(char c) {
+	b32 res = (((c >= 'a') && (c <= 'z')) ||
 		((c >= 'A') && (c <= 'Z')));
 	return(res);
 }
 
-inline bool
-numeric(char c)
-{
-	bool res = ((c >= '0') && (c <= '9'));
+inline b32
+numeric(char c) {
+	b32 res = ((c >= '0') && (c <= '9'));
 	return(res);
 }
 
-inline bool
-word_fit(Token tok, char *word)
-{
+inline b32
+word_fit(Token tok, char *word) {
 	char *pos = word;
-	for(int ind = 0; ind < tok.text_length; ++ind, ++pos)
-	{
-		if((*pos == 0) ||
-			(tok.text[ind] != *pos))
-		{
+	for(int ind = 0; ind < tok.text_length; ++ind, ++pos) {
+		if((*pos == 0) || (tok.text[ind] != *pos)) {
 			return(false);
 		}
 	}
+	b32 res = (*pos == 0);
+	return(res);
+}
 
-	bool res = (*pos == 0);
+inline b32
+word_fit_NNT(Token tok, char *word) {
+	b32 res = true;
+	char *pos = word;
+	for(int ind = 0; ind < tok.text_length; ++ind, ++pos) {
+		if((tok.text[ind] != *pos) || ((*pos == 0) && (ind != tok.text_length - 1))) {
+			res = false;
+			break;
+		}
+	}
+	return(res);
+}
+
+KH_INLINE b32
+tokens_are_equals(Token a, Token b) {
+	b32 res = true;
+	if(a.text_length == b.text_length) {
+		for(int ind = 0; ind < a.text_length; ++ind) {
+			if(a.text[ind] != b.text[ind]) {
+				res = false;
+				break;
+			}
+		}
+	} else {
+		res = false;
+	}
 	return(res);
 }
 
 KH_INTERN void
-ignore_white_space(StringTokenizer *tokenizer)
-{
-	while(true)
-	{
-		if(white_space(tokenizer->pos[0]))
-		{
+ignore_white_space(StringTokenizer *tokenizer) {
+	while(true) {
+		if(white_space(tokenizer->pos[0])) {
 			++tokenizer->pos;
-		}
-		else if((tokenizer->pos[0] == '/') &&
-			(tokenizer->pos[1] == '/'))
-		{
+		} else if((tokenizer->pos[0] == '/') &&	(tokenizer->pos[1] == '/'))	{
 			tokenizer->pos += 2;
-			while(tokenizer->pos[0] && !end_of_line(tokenizer->pos[0]))
-			{
+			while(tokenizer->pos[0] && !end_of_line(tokenizer->pos[0]))	{
 				++tokenizer->pos;
 			}
-		}
-		else if((tokenizer->pos[0] == '/') &&
-			(tokenizer->pos[1] == '*'))
-		{
+		} else if((tokenizer->pos[0] == '/') &&	(tokenizer->pos[1] == '*'))	{
 			tokenizer->pos += 2;
-			while(tokenizer->pos[0] &&
-				!((tokenizer->pos[0] == '*') &&
-				(tokenizer->pos[1] == '/')))
-			{
+			while(tokenizer->pos[0] && !((tokenizer->pos[0] == '*') && (tokenizer->pos[1] == '/'))) {
 				++tokenizer->pos;
 			}
-			if(tokenizer->pos[0] == '*')
-			{
+			if(tokenizer->pos[0] == '*') {
 				tokenizer->pos += 2;
 			}
-		}
-		else
-		{
+		} else {
 			// TODO(flo): maybe handle #if 0 to #endif statements ?
 			break;
 		}
@@ -155,29 +156,20 @@ ignore_white_space(StringTokenizer *tokenizer)
 }
 
 KH_INTERN void
-read_number(StringTokenizer *tokenizer, Token *tok)
-{
+read_number(StringTokenizer *tokenizer, Token *tok) {
 	// TODO(flo): hexadecimal, octant, binaries
 	tok->type = Token_numeric;
-
 	u32 dot = 0;
-	while(numeric(tokenizer->pos[0]) || (tokenizer->pos[0] == '.' && dot <= 1) || tokenizer->pos[0] == 'e')
-	{
-		if(tokenizer->pos[0] == '.')
-		{
+	while(numeric(tokenizer->pos[0]) || (tokenizer->pos[0] == '.' && dot <= 1) || tokenizer->pos[0] == 'e')	{
+		if(tokenizer->pos[0] == '.') {
 			tok->type = Token_decimal;
 			++dot;
 		}
-		if(tokenizer->pos[0] == 'e')
-		{
+		if(tokenizer->pos[0] == 'e') {
 			tok->type = Token_decimal;
 			++tokenizer->pos;
-			if(tokenizer->pos[0] == '-' || tokenizer->pos[0] == '+')
-			{
-
-			}
-			else
-			{
+			if(tokenizer->pos[0] == '-' || tokenizer->pos[0] == '+') {
+			} else {
 				// NOTE(flo): some error messages here!
 			}
 		}
@@ -186,18 +178,15 @@ read_number(StringTokenizer *tokenizer, Token *tok)
 }
 
 KH_INTERN Token
-get_token_and_next(StringTokenizer *tokenizer)
-{
+get_token_and_next(StringTokenizer *tokenizer) {
 	ignore_white_space(tokenizer);
-
 	Token res = {};
 	res.text_length = 1;
 	res.text = tokenizer->pos;
 	char c = tokenizer->pos[0];
 	++tokenizer->pos;
 
-	switch(c)
-	{
+	switch(c) {
 		case '\0': {res.type = Token_end_of_file;} break;
 		case '(': {res.type = Token_open_parenthesis;} break;
 		case ')': {res.type = Token_close_parenthesis;} break;
@@ -228,61 +217,95 @@ get_token_and_next(StringTokenizer *tokenizer)
 		case '~' : {res.type = Token_tilde;} break;
 		case '^' : {res.type = Token_caret;} break;
 		case '`' : {res.type = Token_backquote;} break;
+		case '.' : {res.type = Token_point;} break;
 
-		case '\"' :
-		{
+		case '\"' :	{
 			res.type = Token_string;
-
 			res.text = tokenizer->pos;
-
-			while(tokenizer->pos[0] && tokenizer->pos[0] != '\"')
-			{
-				if((tokenizer->pos[0] == '\\') &&
-					tokenizer->pos[1])
-				{
+			while(tokenizer->pos[0] && tokenizer->pos[0] != '\"') {
+				if((tokenizer->pos[0] == '\\') && tokenizer->pos[1]) {
 					++tokenizer->pos;
 				}
 				++tokenizer->pos;
 			}
-
 			res.text_length = tokenizer->pos - res.text;
-			if(tokenizer->pos[0] == '\"')
-			{
+			if(tokenizer->pos[0] == '\"') {
 				++tokenizer->pos;
 			}
 		} break;
 
-		default:
-		{
-			if(alphabetic(c))
-			{
+		default: {
+			if(alphabetic(c)) {
 				res.type = Token_word;
-
-				while(alphabetic(tokenizer->pos[0]) || numeric(tokenizer->pos[0]) || tokenizer->pos[0] == '_')
-				{
+				while(alphabetic(tokenizer->pos[0]) || numeric(tokenizer->pos[0]) || tokenizer->pos[0] == '_') {
 					++tokenizer->pos;
 				}
 				res.text_length = tokenizer->pos - res.text;
-			}
-			else if(numeric(c))
-			{
+			} else if(numeric(c)) {
 				read_number(tokenizer, &res);
 				res.text_length = tokenizer->pos - res.text;
-			}
-			else
-			{
+			} else {
 				res.type = Token_unknown;
 			}
 		} break;
 	}
-
 	return(res);
 }
 
-KH_INTERN bool
-token_fit(Token t, TokenType desired_type)
-{
-	bool res = (t.type == desired_type);
+KH_INTERN b32
+token_fit(Token t, TokenIdentifier desired_type) {
+	b32 res = (t.type == desired_type);
+	return(res);
+}
+
+KH_INTERN f64
+str_to_f64(char *str, umm str_len) {
+	f64 res = 0.0;
+	f64 mag;
+	u32 len = 0;
+
+	i32 _pow, i;
+	i32 _div = 0;
+	while(len < str_len && str[len] != '.' && str[len] != 'e') {
+		res = res * 10.0 + (f64)(str[len] - '0');
+		len++;
+	}
+
+	if(len < str_len && str[len] == '.') {
+		len++;
+		for(mag = 0.1; len < str_len; ++len, mag *= 0.1f) {
+			if(str[len] == 'e')	{
+				break;
+			}
+			res = res + (f64)(str[len] - '0') * mag;
+		}
+	}
+	if(len < str_len && str[len] == 'e') {
+		len++;
+		if(str[len] == '-')	{
+			_div = 1;
+			len++;
+		} else if(str[len] == '+') {
+			len++;
+		}
+		for(_pow = 0; len < str_len; ++len) {
+			_pow = _pow * 10 + (i32)(str[len] - '0'); 
+		}
+		for(mag = 1.0, i = 0; i < _pow; ++i) {
+			mag *= 100.0;
+		}
+		if(_div) {
+			res = res / mag;
+		} else {
+			res = res * mag;
+		}
+	}
+	return(res);	
+}
+
+KH_INTERN f32 
+str_to_f32(char *str, umm str_len) {
+	f32 res = (f32)str_to_f64(str, str_len);
 	return(res);
 }
 
@@ -290,63 +313,7 @@ KH_INTERN f64
 token_to_f64(Token tok)
 {
 	kh_assert(token_fit(tok, Token_decimal));
-
-	f64 res = 0.0;
-	f64 mag;
-	u32 len = 0;
-	char *c = tok.text;
-
-	i32 _pow, i;
-	i32 _div = 0;
-	while(len < tok.text_length && tok.text[len] != '.' && tok.text[len] != 'e')
-	{
-		res = res * 10.0 + (f64)(tok.text[len] - '0');
-		len++;
-	}
-
-	if(len < tok.text_length && tok.text[len] == '.')
-	{
-		len++;
-		for(mag = 0.1; len < tok.text_length; ++len, mag *= 0.1f)
-		{
-			if(tok.text[len] == 'e')
-			{
-				break;
-			}
-			res = res + (f64)(tok.text[len] - '0') * mag;
-		}
-	}
-
-	if(len < tok.text_length && tok.text[len] == 'e')
-	{
-		len++;
-		if(tok.text[len] == '-')
-		{
-			_div = 1;
-			len++;
-		}
-		else if(tok.text[len] == '+')
-		{
-			len++;
-		}
-
-		for(_pow = 0; len < tok.text_length; ++len)
-		{
-			_pow = _pow * 10 + (i32)(tok.text[len] - '0'); 
-		}
-		for(mag = 1.0, i = 0; i < _pow; ++i)
-		{
-			mag *= 100.0;
-		}
-		if(_div)
-		{
-			res = res / mag;
-		}
-		else
-		{
-			res = res * mag;
-		}
-	}
+	f64 res = str_to_f64(tok.text, tok.text_length); 
 	return(res);
 
 }
@@ -365,8 +332,7 @@ token_to_u32(Token tok)
 
 	u32 res = 0;
 	u32 len = 0;
-	while(len < tok.text_length)
-	{
+	while(len < tok.text_length) {
 		res = res * 10 + (u32)(tok.text[len] - '0');
 		len++;
 	}

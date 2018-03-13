@@ -11,6 +11,10 @@ typedef int8_t  i8; // signed char
 typedef int16_t i16; // signed short
 typedef int32_t i32; // signed long
 typedef int64_t i64; // signed long long
+typedef int8_t  s8; // signed char
+typedef int16_t s16; // signed short
+typedef int32_t s32; // signed long
+typedef int64_t s64; // signed long long
 typedef i32 b32;
 
 typedef uint8_t  u8; // unsigned char 
@@ -37,9 +41,6 @@ typedef double f64;
 #define I32_MAX LONG_MAX
 #define U32_MAX ULONG_MAX
 
-#define kh_assert(expression) if(!(expression)) { *(int *)0 = 0;}
-#define NOT_IMPLEMENTED kh_assert(!"not implemented")
-
 #define kb(x) ((x) << 10)
 #define mb(x) ((x) << 20)
 #define gb(x) ((x) << 30)
@@ -49,8 +50,6 @@ typedef double f64;
 #define megabytes(x) mb(x)
 #define gigabytes(x) gb(x)
 #define terabytes(x) tb(x)
-
-#define INVALID_U32_OFFSET 0xFFFFFFFF
 
 #define KH_TYPES_H
 #endif

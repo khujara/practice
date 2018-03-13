@@ -1,62 +1,51 @@
 #ifndef KH_MATHDEF_H
 // TODO(flo): remove this math library once everything is implemented
-#include <math.h>
-typedef union v2
-{
-	struct
-	{
+#include "math.h"
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+typedef union v2 {
+	f32 e[2];
+	struct {
 		f32 x, y;
 	};
-	struct
-	{
-		f32 u, v;
-	};
-	f32 e[2];
 } v2;
 
-typedef union v3
-{
-	struct
-	{
+typedef union v3 {
+	f32 e[3];
+	struct {
 		f32 x,y,z;
 	};
-	f32 e[3];
+	struct {
+		f32 r,g,b;
+	};
 } v3;
 
-typedef union v4
-{
-	struct
-	{
+typedef union v4 {
+	f32 e[4];
+	struct {
 		f32 x,y,z,w;
 	};
-	f32 e[4];
-	struct
-	{
+	struct {
 		f32 r,g,b,a;
 	};
 } v4;
 
-typedef union v2i
-{
-	struct
-	{
+typedef union v2i {
+	struct {
 		i32 x, y;
 	};
-	i32 E[2];
+	i32 e[2];
 } v2i;
 
-typedef union v4i
-{
-	struct
-	{
+typedef union v4i {
+	struct {
 		i32 a, b, c, d;
 	};
-	struct
-	{
+	struct {
 		i32 r, g, b, a;
 	};
-	struct
-	{
+	struct {
 		i32 x, y, z, w;
 	};
 	i32 e[4];
@@ -65,16 +54,13 @@ typedef union v4i
 // #define mat3 float[9]
 // #define mat4 float[16]
 
-typedef union mat3
-{
-	struct
-	{
+typedef union mat3 {
+	struct {
 		v3 c0;
 		v3 c1;
 		v3 c2;
 	};
-	struct
-	{
+	struct {
 		f32 m00, m01, m02, m10, m11, m12, m20, m21, m22;
 	};
 	// NOTE(flo): we are in column major, c multidimensional arrays are in row major
@@ -82,17 +68,14 @@ typedef union mat3
 	f32 e[9];
 } mat3;
 
-typedef union mat4
-{
-	struct
-	{
+typedef union mat4 {
+	struct {
 		v4 c0;
 		v4 c1;
 		v4 c2;
 		v4 c3;
 	};
-	struct
-	{
+	struct {
 		f32 m00, m01, m02, m03, m10, m11, m12, m13, m20, m21, m22, m23, m30, m31, m32, m33;
 	};
 	// NOTE(flo): we are in column major, c multidimensional arrays are in row major
@@ -101,101 +84,91 @@ typedef union mat4
 } mat4;
 
 
-typedef union quat
-{
-	struct
-	{
+typedef union quat {
+	struct {
 		f32 x, y, z , w;
 	};
-	struct
-	{
+	struct {
 		v3 n;
 		f32 w;
 	};
 	f32 e[4];
 } quat;
 
-typedef struct euler_angle
+typedef struct EulerAngle
 {
-	f32 pitch, yaw, roll;
-} euler_angle;
+	// NOTE(flo): y_axis rotation
+	f32 pitch;
+	// NOTE(flo): z_axis rotation
+	f32 yaw;
+	// NOTE(flo): x_axis rotation
+	f32 roll;
+} EulerAngle;
 
-typedef struct rect
-{
+typedef struct Rect {
 	v2 min, max;
-} rect;
+} Rect;
 
-typedef struct recti
-{
+typedef struct Recti {
 	i32 min_x, max_x;
 	i32 min_y, max_y;
-} recti;
+} Recti;
 
-typedef struct aabb
-{
+typedef struct AABB {
 	v3 min, max;
-} aabb;
+} AABB;
 
-typedef struct ray
-{
-	v3 start, dir;
-} ray;
+typedef struct Ray {
+	v3 origin;
+	v3 dir;
+} Ray;
 
-typedef struct ray_2d
-{
-	v2 start, dir;
-} ray_2d;
+typedef struct Ray2D {
+	v2 orig, dir;
+} Ray2D;
 
-typedef struct line
-{
+typedef struct Line {
 	v3 start, end;
-} line;
+} Line;
 
-typedef struct line_2d
-{
+typedef struct Line2D {
 	v2 start, end;
-} line_2d;
+} Line2D;
 
-typedef struct triangle
-{
-	v3 a, b, c;
-} triangle;
+typedef struct Triangle {
+	// v3 a, b, c;
+	v3 v_0, v_1, v_2;
+} Triangle;
 
-typedef struct circle
-{
+typedef struct Circle {
 	v2 center;
 	f32 radius;
-} circle;
+} Circle;
 
-typedef struct Sphere
-{
+typedef struct Sphere {
 	v3 center;
 	f32 radius;
 } Sphere;
 
-typedef struct polygon
-{
+typedef struct Polygon3D {
 	i32 count;
 	v3 *pos;
-} polygon;
+} Polygon3D;
 
-typedef struct polygon_2d
-{
+typedef struct Polygon2D {
 	i32 count;
 	v2 *pos;
-} polygon_2d;
+} Polygon2D;
 
-typedef struct plane
-{
+typedef struct Plane {
 	v3 normal;
 	f32 d;
-} plane;
+} Plane;
 
-typedef struct bit_scan
-{
+typedef struct BitScan {
 	b32 found;
 	u32 index;
-}bit_scan;
+}BitScan;
 
 typedef struct Transform_SQT {
 	v3 pos;
@@ -204,7 +177,12 @@ typedef struct Transform_SQT {
 }Transform_SQT;
 
 #define PI32 3.14159265354897932384626433837959f
+#define INV_PI32 0.31830988618f 
 #define TAU32 6.283185307179586476925286766559f
+#define TWO_PI32 TAU32
+#define INV_TAU32 0.15915494309f
+#define INV_TWO_PI32 INV_TAU32
+#define E32 2.71828182845904523536028747135266249f
 #define PIOVER360 0.00872664625997164788461845384244f
 #define TO_DEGREES 57.2957795131f
 #define TO_RADIANS 0.0174532925f
@@ -223,14 +201,27 @@ typedef struct Transform_SQT {
 #define COS_90 0.0f;
 #define SIN_90 1.0f;
 
+typedef v4 ColorRGBA;
+typedef v3 ColorRGB;
+
 // TODO(flo): we need to define our math functions here
 KH_INLINE mat4 from_quat_to_mat4(quat rot);
 
+KH_INLINE v2i
+kh_vec2i(u32 x, u32 y) {
+	v2i res;
+	res.x = x;
+	res.y = y;
+	return(res);
+}
 
 #define KH_MATHDEF_H
 #endif
 
 #ifdef KH_MATH_IMPLEMENTATION
+#include "math/kh_u32_64.cpp"
+#include "math/kh_i32_64.cpp"
+#include "math/kh_f32_64.cpp"
 #include "math/kh_intrin.cpp"
 #include "math/kh_vec2.cpp"
 #include "math/kh_vec3.cpp"
@@ -240,9 +231,53 @@ KH_INLINE mat4 from_quat_to_mat4(quat rot);
 #include "math/kh_mat44.cpp"
 #include "math/kh_transform.cpp"
 #include "math/kh_euler_angle.cpp"
-#include "math/kh_rotation_conversion.cpp"
 #include "math/kh_geometry.cpp"
 #include "math/kh_intersection.cpp"
+
+inline v3
+kh_spherical_dir(f32 cos_theta, f32 sin_theta, f32 cos_phi, f32 sin_phi) {
+	v3 res;
+	res.x = sin_theta * cos_phi;
+	res.y = sin_theta * sin_phi;
+	res.z = cos_theta;
+	return(res);
+}
+
+inline v3
+kh_spherical_dir(f32 cos_theta, f32 sin_theta, f32 phi) {
+	v3 res = kh_spherical_dir(cos_theta, sin_theta, kh_cos_f32(phi), kh_sin_f32(phi));
+	return(res);
+}
+
+inline v3
+kh_spherical_dir(f32 theta, f32 phi) {
+	f32 cos_t = kh_cos_f32(theta);
+	f32 sin_t = kh_sin_f32(theta);
+	f32 cos_p = kh_cos_f32(phi);
+	f32 sin_p = kh_sin_f32(phi);
+	v3 res = kh_spherical_dir(cos_t, sin_t, cos_p, sin_p);
+	return(res);
+}
+
+inline v3
+kh_spherical_dir(f32 cos_t, f32 sin_t, f32 cos_p, f32 sin_p, v3 x_axis, v3 y_axis, v3 z_axis) {
+	v3 res = sin_t * cos_p * x_axis + sin_t * sin_p * y_axis + cos_t * z_axis;
+	return(res);
+}
+
+inline f32
+kh_spherical_theta(v3 v) {
+	f32 res = kh_acos_f32(kh_clamp_f32(-1.0f, 1.0f, v.z));
+	return(res);
+}
+
+inline f32
+kh_spherical_phi(v3 v) {
+	f32 p = kh_atan2_f32(v.y, v.x);
+	f32 res = (p < 0) ? (p + 2 * PI32) : p;
+	return(res); 
+}
+
 #endif //KH_INCLUDE_MATH_IMPLEMENTATION
 
 #if 0

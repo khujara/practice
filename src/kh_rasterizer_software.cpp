@@ -36,10 +36,11 @@ struct Vertex_SSE
 
 #define BLOCK_RASTER_SIZE 4 //NOTE(flo): do not touch this!
 
+// TODO(flo): remove all occurences of m128i_i32/m128_f32
 // TODO(flo): texture bilinear sampling, gamma correction, premultipled alpha
 KH_INLINE void
 rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID diffuse_id, v4 color, Vertex_SSE vert_0, 
-                           Vertex_SSE vert_1, Vertex_SSE vert_2, DirectionalLight *dirlight, const u32 src_tri_count = 4)
+                           Vertex_SSE vert_1, Vertex_SSE vert_2, v3 light_dir, const u32 src_tri_count = 4)
 {
 	// NOTE(flo): we compute values (interpolants, deltas...) for our half edges function for src_tri_count triangles first
 	LoadedAsset loaded_diffuse = get_loaded_asset(assets, diffuse_id, AssetType_tex2d);
@@ -76,9 +77,9 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 	__m128 color_b = _mm_set1_ps(color.b);
 	__m128 color_a = _mm_set1_ps(color.a);
 
-	__m128 light_dir_x = _mm_set1_ps(-dirlight->dir.x);
-	__m128 light_dir_y = _mm_set1_ps(-dirlight->dir.y);
-	__m128 light_dir_z = _mm_set1_ps(-dirlight->dir.z);
+	__m128 light_dir_x = _mm_set1_ps(-light_dir.x);
+	__m128 light_dir_y = _mm_set1_ps(-light_dir.y);
+	__m128 light_dir_z = _mm_set1_ps(-light_dir.z);
 
 	__m128 ambient_coeff = _mm_set1_ps(0.1f);
 	__m128 light_coeff = _mm_set1_ps(0.9f);
@@ -91,29 +92,33 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 	__m128 texcoord_y[3] = { _mm_mul_ps(one_over_z[0], vert_0.texcoord_y), _mm_mul_ps(one_over_z[1], vert_1.texcoord_y),
 		_mm_mul_ps(one_over_z[2], vert_2.texcoord_y) };
 
-	__m128 dot_0_x = _mm_mul_ps(vert_0.normal_x, light_dir_x);
-	__m128 dot_0_y = _mm_mul_ps(vert_0.normal_y, light_dir_y);
-	__m128 dot_0_z = _mm_mul_ps(vert_0.normal_z, light_dir_z);
-	__m128 dot_0_SSE = _mm_add_ps(_mm_add_ps(dot_0_x, dot_0_y), dot_0_z);
-	__m128 saturate_0_SSE = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, dot_0_SSE));
-	__m128 light_0 = _mm_add_ps(_mm_mul_ps(saturate_0_SSE, light_coeff), ambient_coeff);
+	__m128 light[3] = { _mm_set1_ps(1.0f), _mm_set1_ps(1.0f), _mm_set1_ps(1.0f) };
+	if(!(light_dir.x == 0.0f && light_dir.y == 0.0f && light_dir.z == 0.0f)) {
+		__m128 dot_0_x = _mm_mul_ps(vert_0.normal_x, light_dir_x);
+		__m128 dot_0_y = _mm_mul_ps(vert_0.normal_y, light_dir_y);
+		__m128 dot_0_z = _mm_mul_ps(vert_0.normal_z, light_dir_z);
+		__m128 dot_0_SSE = _mm_add_ps(_mm_add_ps(dot_0_x, dot_0_y), dot_0_z);
+		__m128 saturate_0_SSE = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, dot_0_SSE));
+		__m128 light_0 = _mm_add_ps(_mm_mul_ps(saturate_0_SSE, light_coeff), ambient_coeff);
 
-	__m128 dot_1_x = _mm_mul_ps(vert_1.normal_x, light_dir_x);
-	__m128 dot_1_y = _mm_mul_ps(vert_1.normal_y, light_dir_y);
-	__m128 dot_1_z = _mm_mul_ps(vert_1.normal_z, light_dir_z);
-	__m128 dot_1_SSE = _mm_add_ps(_mm_add_ps(dot_1_x, dot_1_y), dot_1_z);
-	__m128 saturate_1_SSE = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, dot_1_SSE));
-	__m128 light_1 = _mm_add_ps(_mm_mul_ps(saturate_1_SSE, light_coeff), ambient_coeff);
+		__m128 dot_1_x = _mm_mul_ps(vert_1.normal_x, light_dir_x);
+		__m128 dot_1_y = _mm_mul_ps(vert_1.normal_y, light_dir_y);
+		__m128 dot_1_z = _mm_mul_ps(vert_1.normal_z, light_dir_z);
+		__m128 dot_1_SSE = _mm_add_ps(_mm_add_ps(dot_1_x, dot_1_y), dot_1_z);
+		__m128 saturate_1_SSE = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, dot_1_SSE));
+		__m128 light_1 = _mm_add_ps(_mm_mul_ps(saturate_1_SSE, light_coeff), ambient_coeff);
 
-	__m128 dot_2_x = _mm_mul_ps(vert_2.normal_x, light_dir_x);
-	__m128 dot_2_y = _mm_mul_ps(vert_2.normal_y, light_dir_y);
-	__m128 dot_2_z = _mm_mul_ps(vert_2.normal_z, light_dir_z);
-	__m128 dot_2_SSE = _mm_add_ps(_mm_add_ps(dot_2_x, dot_2_y), dot_2_z);
-	__m128 saturate_2_SSE = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, dot_2_SSE));
-	__m128 light_2 = _mm_add_ps(_mm_mul_ps(saturate_2_SSE, light_coeff), ambient_coeff);
+		__m128 dot_2_x = _mm_mul_ps(vert_2.normal_x, light_dir_x);
+		__m128 dot_2_y = _mm_mul_ps(vert_2.normal_y, light_dir_y);
+		__m128 dot_2_z = _mm_mul_ps(vert_2.normal_z, light_dir_z);
+		__m128 dot_2_SSE = _mm_add_ps(_mm_add_ps(dot_2_x, dot_2_y), dot_2_z);
+		__m128 saturate_2_SSE = _mm_max_ps(zero_SSE, _mm_min_ps(one_SSE, dot_2_SSE));
+		__m128 light_2 = _mm_add_ps(_mm_mul_ps(saturate_2_SSE, light_coeff), ambient_coeff);
+		light[0] = light_0;
+		light[1] = light_1; 
+		light[2] = light_2;
+	}
 
-	__m128 light[3] = { light_0, light_1, light_2 };
-	// __m128 light[3] = { _mm_set1_ps(1.0f), _mm_set1_ps(1.0f), _mm_set1_ps(1.0f) };
 
 	__m128 x0_SSE = vert_0.pos_x;
 	__m128 y0_SSE = vert_0.pos_y;
@@ -137,8 +142,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 	__m128i abs_tri_area = _mm_abs_epi32(_mm_cvtps_epi32(triangle_area_times_two));
 	__m128i sub_pixel_mask = _mm_cmplt_epi32(abs_tri_area, max_triangle_area);
 
-	if(!_mm_test_all_ones(sub_pixel_mask))
-	{
+	if(!_mm_test_all_ones(sub_pixel_mask)) {
 		sub_pixel_bits = 4;
 	}
 
@@ -302,8 +306,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 	u32 shift_inc = ((BLOCK_RASTER_SIZE >> 1) + sub_pixel_bits);
 	__m128 inc_ps = _mm_set1_ps((f32)BLOCK_RASTER_SIZE);
 
-	for(u32 tri_i = 0; tri_i < src_tri_count; ++tri_i)
-	{
+	for(u32 tri_i = 0; tri_i < src_tri_count; ++tri_i) {
 		// i32 min_x = min_x_SSE.m128i_i32[tri_i];
 		// i32 min_y = min_y_SSE.m128i_i32[tri_i];
 		// i32 max_x = max_x_SSE.m128i_i32[tri_i];
@@ -423,8 +426,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 		f32 *zbuffer_row_3 = zbuffer_row_2 + target_w;
 		u32 zbuffer_pitch = target_w * BLOCK_RASTER_SIZE;
 
-		for(i32 y = min_y; y < max_y; y += BLOCK_RASTER_SIZE) 
-		{
+		for(i32 y = min_y; y < max_y; y += BLOCK_RASTER_SIZE) {
 			//NOTE(flo): compute fixed point barycentric coordinates for each of the three edges with the 4x4 block area
 			__m128i alpha_0 = _mm_add_epi32(a0_col, _mm_set1_epi32(b0_row.m128i_i32[0]));
 			__m128i alpha_1 = _mm_add_epi32(a0_col, _mm_set1_epi32(b0_row.m128i_i32[1]));
@@ -454,8 +456,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 
 			advance_x = offset_ps;
 
-			for(i32 x = min_x; x < max_x; x += BLOCK_RASTER_SIZE)
-			{
+			for(i32 x = min_x; x < max_x; x += BLOCK_RASTER_SIZE) {
 				// NOTE(flo): check if we find an edge of the triangle in the 4x4 block area (half-space function)
 				__m128i m_0 = _mm_or_si128(_mm_or_si128(alpha_0, beta_0), gamma_0);
 				__m128i m_1 = _mm_or_si128(_mm_or_si128(alpha_1, beta_1), gamma_1);
@@ -528,8 +529,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 					w_mask_3 = _mm_and_si128(depth_mask_3, w_mask_3);
 
 					u32 dst_off = x * FRAME_BUFFER_BYTES_PER_PIXEL + y * pitch;
-					if(!_mm_test_all_zeros(w_mask_0, w_mask_0))
-					{
+					if(!_mm_test_all_zeros(w_mask_0, w_mask_0)) {
 						__m128 w_mask_ps = _mm_castsi128_ps(w_mask_0);
 						__m128 new_depth = _mm_or_ps(_mm_and_ps(w_mask_ps, d_row_0), _mm_andnot_ps(w_mask_ps, original_d_0)); 
 
@@ -549,21 +549,16 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse.bytes_per_pixel == 1)
-						{
+						if(diffuse.bytes_per_pixel == 1) {
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
 							u32 color_2 = (t_mem_2[0] << 24) | (t_mem_2[0] << 16) | (t_mem_2[0] << 8) | (t_mem_2[0] << 0);
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
-						}
-						else if(diffuse.bytes_per_pixel == 3)
-						{
+						} else if(diffuse.bytes_per_pixel == 3) {
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
-						}
-						else
-						{
+						} else {
 							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
@@ -612,8 +607,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 
 					dst_off += pitch;
 
-					if(!_mm_test_all_zeros(w_mask_1, w_mask_1))
-					{
+					if(!_mm_test_all_zeros(w_mask_1, w_mask_1)) {
 						__m128 w_mask_ps = _mm_castsi128_ps(w_mask_1);
 						__m128 new_depth = _mm_or_ps(_mm_and_ps(w_mask_ps, d_row_1), _mm_andnot_ps(w_mask_ps, original_d_1));
 						_mm_store_ps(d_1, new_depth);
@@ -629,21 +623,16 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse.bytes_per_pixel == 1)
-						{
+						if(diffuse.bytes_per_pixel == 1) {
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
 							u32 color_2 = (t_mem_2[0] << 24) | (t_mem_2[0] << 16) | (t_mem_2[0] << 8) | (t_mem_2[0] << 0);
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
-						}
-						else if(diffuse.bytes_per_pixel == 3)
-						{
+						} else if(diffuse.bytes_per_pixel == 3) {
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
-						}
-						else
-						{
+						} else {
 							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
@@ -692,8 +681,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 
 					dst_off += pitch;
 
-					if(!_mm_test_all_zeros(w_mask_2, w_mask_2))
-					{
+					if(!_mm_test_all_zeros(w_mask_2, w_mask_2)) {
 						__m128 w_mask_ps = _mm_castsi128_ps(w_mask_2);
 						__m128 new_depth = _mm_or_ps(_mm_and_ps(w_mask_ps, d_row_2), _mm_andnot_ps(w_mask_ps, original_d_2));
 						_mm_store_ps(d_2, new_depth);
@@ -709,21 +697,16 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse.bytes_per_pixel == 1)
-						{
+						if(diffuse.bytes_per_pixel == 1) {
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
 							u32 color_2 = (t_mem_2[0] << 24) | (t_mem_2[0] << 16) | (t_mem_2[0] << 8) | (t_mem_2[0] << 0);
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
-						}
-						else if(diffuse.bytes_per_pixel == 3)
-						{
+						} else if(diffuse.bytes_per_pixel == 3) {
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
-						}
-						else
-						{
+						} else {
 							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
@@ -771,8 +754,7 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 
 					dst_off += pitch;
 
-					if(!_mm_test_all_zeros(w_mask_3, w_mask_3))
-					{
+					if(!_mm_test_all_zeros(w_mask_3, w_mask_3)) {
 						__m128 w_mask_ps = _mm_castsi128_ps(w_mask_3);
 						__m128 new_depth = _mm_or_ps(_mm_and_ps(w_mask_ps, d_row_3), _mm_andnot_ps(w_mask_ps, original_d_3));
 						_mm_store_ps(d_3, new_depth);
@@ -788,21 +770,16 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 						u8 *t_mem_3 = (u8 *)diffuse_memory + src_mem_off.m128i_i32[0];
 
 						__m128i sample;
-						if(diffuse.bytes_per_pixel == 1)
-						{
+						if(diffuse.bytes_per_pixel == 1) {
 							u32 color_0 = (t_mem_0[0] << 24) | (t_mem_0[0] << 16) | (t_mem_0[0] << 8) | (t_mem_0[0] << 0);
 							u32 color_1 = (t_mem_1[0] << 24) | (t_mem_1[0] << 16) | (t_mem_1[0] << 8) | (t_mem_1[0] << 0);
 							u32 color_2 = (t_mem_2[0] << 24) | (t_mem_2[0] << 16) | (t_mem_2[0] << 8) | (t_mem_2[0] << 0);
 							u32 color_3 = (t_mem_3[0] << 24) | (t_mem_3[0] << 16) | (t_mem_3[0] << 8) | (t_mem_3[0] << 0);
 							sample = _mm_set_epi32(color_0, color_1, color_2, color_3);
-						}
-						else if(diffuse.bytes_per_pixel == 3)
-						{
+						} else if(diffuse.bytes_per_pixel == 3) {
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 							sample = _mm_or_si128(sample, mask_ff000000);
-						}
-						else
-						{
+						} else {
 							kh_assert(diffuse.bytes_per_pixel == 4);
 							sample = _mm_set_epi32(*(u32 *)t_mem_0, *(u32 *)t_mem_1, *(u32 *)t_mem_2, *(u32 *)t_mem_3);
 						}
@@ -883,36 +860,27 @@ rasterize_triangle_SSE_4x4(SoftwareFrameBuffer *target, Assets *assets, AssetID 
 
 // TODO(flo): clipping
 inline void
-rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *zbuffer, Vertex_PNU vert_0, Vertex_PNU vert_1, Vertex_PNU vert_2, v4 color, const Texture2D *diffuse, const u8 *diffuse_memory)
-{
+rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *zbuffer, Vertex_PNU vert_0, Vertex_PNU vert_1, Vertex_PNU vert_2, v4 color, const Texture2D *diffuse, const u8 *diffuse_memory) {
 	// NOTE(flo) : triangle area = half of magnitude of the 2D cross product
 	// we just need to check if the area is positive or negative so we juste compute
 	// the parallelogram area
-	f32 triangle_area_times_two = ((vert_1.pos.x - vert_0.pos.x) * (vert_2.pos.y - vert_0.pos.y)) -
-		((vert_2.pos.x - vert_0.pos.x) * (vert_1.pos.y - vert_0.pos.y));
+	v3 vec_a = vert_1.pos - vert_0.pos;
+	v3 vec_b = vert_2.pos - vert_0.pos;
+
+
+	f32 triangle_area_times_two = (vec_a.x * vec_b.y) - (vec_b.x * vec_a.y);
 	// NOTE(flo): we are counterclockwise
-	if(triangle_area_times_two < 0)
-	{
-		return;
+	if(triangle_area_times_two < 0)	return;
+
+	// TODO(flo): we need to swap base on the y values of each vertices
+	if(vert_2.pos.y < vert_1.pos.y)	{
+		kh_swap_val(Vertex_PNU, vert_2, vert_1, tmp);
 	}
-		// TODO(flo): we need to swap base on the y values of each vertices
-	if(vert_2.pos.y < vert_1.pos.y)
-	{
-		Vertex_PNU tmp = vert_2;
-		vert_2 = vert_1;
-		vert_1 = tmp;
+	if(vert_1.pos.y < vert_0.pos.y)	{
+		kh_swap_val(Vertex_PNU, vert_1, vert_0, tmp);
 	}
-	if(vert_1.pos.y < vert_0.pos.y)
-	{
-		Vertex_PNU tmp = vert_1;
-		vert_1 = vert_0;
-		vert_0 = tmp;
-	}
-	if(vert_2.pos.y < vert_1.pos.y)
-	{
-		Vertex_PNU tmp = vert_2;
-		vert_2 = vert_1;
-		vert_1 = tmp;
+	if(vert_2.pos.y < vert_1.pos.y)	{
+		kh_swap_val(Vertex_PNU, vert_2, vert_1, tmp);
 	}
 
 	triangle_area_times_two = ((vert_1.pos.x - vert_0.pos.x) * (vert_2.pos.y - vert_0.pos.y)) -
@@ -1101,8 +1069,7 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 	TriangleEdge *left = &edge_20;
 	TriangleEdge *right = &edge_01;
 
-	if(!counter_clockwise)
-	{
+	if(!counter_clockwise) {
 		TriangleEdge *tmp = left;
 		left = right;
 		right = tmp;
@@ -1111,8 +1078,7 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 	i32 min_y = edge_01.start_y;
 	i32 max_y = edge_01.end_y;
 
-	for(i32 y = min_y; y < max_y; ++y)
-	{
+	for(i32 y = min_y; y < max_y; ++y) {
 		i32 min_x = kh_ceil_f32_to_i32(left->x);
 		i32 max_x = kh_ceil_f32_to_i32(right->x);
 		f32 prestep_x = min_x - left->x;
@@ -1121,11 +1087,9 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 		f32 z_row = left->one_over_z + one_over_zstep.x * prestep_x;
 		f32 depth_row = left->depth + depth_step.x * prestep_x;
 		f32 light_row = left->light + light_step.x * prestep_x;
-		for(i32 x = min_x; x < max_x; ++x)
-		{
+		for(i32 x = min_x; x < max_x; ++x) {
 			i32 ind = x + y * target->w;
-			if(depth_row < zbuffer->memory[ind])
-			{
+			if(depth_row < zbuffer->memory[ind]) {
 				zbuffer->memory[ind] = depth_row;
 				f32 z = 1.0f / z_row;
 				u8* dst = (u8 *)target->memory + x * FRAME_BUFFER_BYTES_PER_PIXEL + y * target->pitch;
@@ -1160,8 +1124,7 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 	left = &edge_20;
 	right = &edge_12;
 
-	if(!counter_clockwise)
-	{
+	if(!counter_clockwise) {
 		TriangleEdge *tmp = left;
 		left = right;
 		right = tmp;
@@ -1170,8 +1133,7 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 	min_y = edge_12.start_y;
 	max_y = edge_12.end_y;
 
-	for(i32 y = min_y; y < max_y; ++y)
-	{
+	for(i32 y = min_y; y < max_y; ++y) {
 		i32 min_x = kh_ceil_f32_to_i32(left->x);
 		i32 max_x = kh_ceil_f32_to_i32(right->x);
 		f32 prestep_x = min_x - left->x;
@@ -1180,11 +1142,9 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 		f32 z_row = left->one_over_z + one_over_zstep.x * prestep_x;
 		f32 depth_row = left->depth + depth_step.x * prestep_x;
 		f32 light_row = left->light + light_step.x * prestep_x;
-		for(i32 x = min_x; x < max_x; ++x)
-		{
+		for(i32 x = min_x; x < max_x; ++x) {
 			i32 ind = x + y * target->w;
-			if(depth_row < zbuffer->memory[ind])
-			{
+			if(depth_row < zbuffer->memory[ind]) {
 				zbuffer->memory[ind] = depth_row;
 				f32 z = 1.0f / z_row;
 				u8* dst = (u8 *)target->memory + x * FRAME_BUFFER_BYTES_PER_PIXEL + y * target->pitch;
@@ -1219,8 +1179,7 @@ rasterize_triangle_scanline(SoftwarePixelsBuffer *target, SoftwareDepthBuffer *z
 }
 
 KH_INTERN void
-clear_pixels_buffer(SoftwarePixelsBuffer *target, u32 color, u32 start, u32 end)
-{
+clear_pixels_buffer(SoftwarePixelsBuffer *target, u32 color, u32 start, u32 end) {
 	u32 *pixels = (u32 *)target->memory + start;
 	for(u32 i = start; i < end; ++i) {
 		*pixels++ = color;

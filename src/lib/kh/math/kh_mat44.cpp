@@ -1,6 +1,5 @@
 inline mat4
-m44(v4 col_0, v4 col_1, v4 col_2, v4 col_3)
-{
+kh_mat4(v4 col_0, v4 col_1, v4 col_2, v4 col_3) {
 	mat4 res;
 	res.c0 = col_0;
 	res.c1 = col_1;
@@ -10,8 +9,7 @@ m44(v4 col_0, v4 col_1, v4 col_2, v4 col_3)
 }
 
 inline mat4
-m44(mat3 basis, v3 tr)
-{
+kh_mat4(mat3 basis, v3 tr) {
 
 	mat4 res;
 	res.c0 = kh_vec4(basis.c0, 0.0f);
@@ -23,11 +21,10 @@ m44(mat3 basis, v3 tr)
 }
 
 inline mat4
-m44(f32 m00, f32 m01, f32 m02, f32 m03,
+kh_mat4(f32 m00, f32 m01, f32 m02, f32 m03,
 	f32 m10, f32 m11, f32 m12, f32 m13,
 	f32 m20, f32 m21, f32 m22, f32 m23,
-	f32 m30, f32 m31, f32 m32, f32 m33)
-{
+	f32 m30, f32 m31, f32 m32, f32 m33) {
 	mat4 res;
 	res.c0 = kh_vec4(m00, m01, m02, m03);
 	res.c1 = kh_vec4(m10, m11, m12, m13);
@@ -37,8 +34,7 @@ m44(f32 m00, f32 m01, f32 m02, f32 m03,
 }
 
 inline mat4
-m44(v3 right, v3 up, v3 forward, v3 tr)
-{
+kh_mat4(v3 right, v3 up, v3 forward, v3 tr) {
 	mat4 res;
 	res.c0 = kh_vec4(right, 0.0f);
 	res.c1 = kh_vec4(up, 0.0f);
@@ -48,8 +44,7 @@ m44(v3 right, v3 up, v3 forward, v3 tr)
 }
 
 inline mat4
-operator*(mat4 a, mat4 b)
-{
+operator*(mat4 a, mat4 b) {
 	mat4 res;
 
 	res.m00 = a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20  + a.m03 * b.m30;
@@ -76,8 +71,7 @@ operator*(mat4 a, mat4 b)
 }
 
 inline mat4
-operator*(mat4 a, f32 b)
-{
+operator*(mat4 a, f32 b) {
 	mat4 res;
 	res.c0 = a.c0 * b;
 	res.c1 = a.c1 * b;
@@ -87,8 +81,7 @@ operator*(mat4 a, f32 b)
 }
 
 inline v3
-operator*(mat4 a, v3 b)
-{
+operator*(mat4 a, v3 b) {
 	// NOTE(flo) : Assume w == 1 so b is a vector not a dir
 	v3 res;
 	res.x = b.x * a.m00 + b.y * a.m10 + b.z * a.m20 + a.m30;
@@ -99,26 +92,21 @@ operator*(mat4 a, v3 b)
 }
 
 inline v3
-kh_mul_mat4_dir(mat4 a, v3 b)
-{
+kh_mul_mat4_dir(mat4 a, v3 b) {
 	v3 res;
-
 	res.x = b.x * a.m00 + b.y * a.m10 + b.z * a.m20;
 	res.y = b.x * a.m01 + b.y * a.m11 + b.z * a.m21;
 	res.z = b.x * a.m02 + b.y * a.m12 + b.z * a.m22;
-
 	return(res);
 }
 
 inline v4
-operator*(mat4 a, v4 b)
-{
+operator*(mat4 a, v4 b) {
 	v4 res;
 	res.x = b.x * a.m00 + b.y * a.m10 + b.z * a.m20 + b.w * a.m30;
 	res.y = b.x * a.m01 + b.y * a.m11 + b.z * a.m21 + b.w * a.m31;
 	res.z = b.x * a.m02 + b.y * a.m12 + b.z * a.m22 + b.w * a.m32;
 	res.w = b.x * a.m03 + b.y * a.m13 + b.z * a.m23 + b.w * a.m33;
-
 	return(res);
 }
 
@@ -139,8 +127,7 @@ operator+=(mat4 &a, mat4 b) {
 }
 
 inline mat4
-kh_identity_mat4()
-{
+kh_identity_mat4() {
 	mat4 res = {};
 	res.m00 = 1;
 	res.m11 = 1;
@@ -150,8 +137,7 @@ kh_identity_mat4()
 }
 
 inline mat4
-kh_transpose_mat4(mat4 m)
-{
+kh_transpose_mat4(mat4 m) {
 	mat4 res;
 	res.m00 = m.m00;
 	res.m01 = m.m10;
@@ -177,37 +163,32 @@ kh_transpose_mat4(mat4 m)
 }
 
 inline v3
-kh_forward_mat4(mat4 m)
-{
+kh_forward_mat4(mat4 m) {
 	v3 res = kh_vec3(m.c2.x, m.c2.y, m.c2.z);
 	return(res);
 }
 
 inline v3
-kh_up_mat4(mat4 m)
-{
+kh_up_mat4(mat4 m) {
 	v3 res = kh_vec3(m.c1.x, m.c1.y, m.c1.z);
 	return(res);
 }
 
 inline v3
-kh_right_mat4(mat4 m)
-{
+kh_right_mat4(mat4 m) {
 	v3 res = kh_vec3(m.c0.x, m.c0.y, m.c0.z);
 	return(res);
 }
 
 inline v3
-kh_get_translation_mat4(mat4 m)
-{
+kh_get_translation_mat4(mat4 m) {
 	v3 res;
 	res = kh_vec3(m.c3);
 	return(res);
 }
 
 inline mat3
-kh_get_rot_mat4(mat4 m)
-{
+kh_get_rot_mat4(mat4 m) {
 	mat3 res;
 	res.c0 = kh_vec3(m.c0);
 	res.c1 = kh_vec3(m.c1);
@@ -216,28 +197,21 @@ kh_get_rot_mat4(mat4 m)
 }
 
 inline void
-kh_set_translation_mat4(mat4 *m, v3 tr)
-{
+kh_set_translation_mat4(mat4 *m, v3 tr) {
 	m->c3.x = tr.x;
 	m->c3.y = tr.y;
 	m->c3.z = tr.z;
 }
 
 inline mat4
-kh_inverse_orthogonal_mat4(mat4 m)
-{
+kh_inverse_orthogonal_mat4(mat4 m) {
 	mat4 res;
-
 	mat3 rot = kh_transpose_mat3(kh_get_rot_mat4(m));
-
 	res.c0 = kh_vec4(rot.c0, 0);
 	res.c1 = kh_vec4(rot.c1, 0);
 	res.c2 = kh_vec4(rot.c2, 0);
-
 	v3 tr = kh_get_translation_mat4(m);
-
 	res.c3 = kh_vec4(-tr, 1);
-
 	return(res);
 }
 
@@ -266,10 +240,8 @@ kh_inverse_mat4(mat4 m) {
 }
 
 inline mat4
-kh_rotate_around_mat4(f32 a, v3 v)
-{
+kh_rotate_around_mat4(f32 a, v3 v) {
 	mat4 res;
-
 	f32 c = kh_cos_f32(a);
 	f32 s = kh_sin_f32(a);
 	f32 t = 1.0f - c;
@@ -287,7 +259,6 @@ kh_rotate_around_mat4(f32 a, v3 v)
 	res.c1 = kh_vec4(t*xy + sz, c + t*yy,  t*yz - sx, 0);
 	res.c2 = kh_vec4(t*xz - sy, t*yz + sx, c + t*zz,  0);
 	res.c3 = kh_vec4(0,0,0,1);
-
 	return (res);
 }
 
@@ -300,3 +271,32 @@ kh_get_mat4_from_sqt(v3 pos, quat rot, v3 scale) {
 	res.c3 = kh_vec4(pos, 1.0f);
 	return(res);
 }
+
+inline void
+kh_scale_mat4(mat4 *dst, f32 scale) {
+	dst->c0.x *= scale; dst->c0.y *= scale; dst->c0.z *= scale;
+	dst->c1.x *= scale; dst->c1.y *= scale; dst->c1.z *= scale;
+	dst->c2.x *= scale; dst->c2.y *= scale; dst->c2.z *= scale;
+}
+
+// inline Transform_SQT
+// kh_get_sqt_from_mat4(mat4 a) {
+// 	Transform_SQT res;
+
+// 	res.pos = kh_vec3(a.c3);
+
+// 	f32 sx = kh_length(kh_vec3(a.c0));
+// 	f32 sy = kh_length(kh_vec3(a.c1));
+// 	f32 sz = kh_length(kh_vec3(a.c2));
+
+// 	res.scale = kh_vec3(sx, sy, sz);
+
+	
+
+// 	return(res);
+// }
+
+// inline Transform_SQT
+// kh_get_sqt_from_mat4_no_scale(mat4 a) {
+// 	Transform_SQT
+// }

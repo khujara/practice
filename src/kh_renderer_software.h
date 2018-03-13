@@ -24,7 +24,7 @@ struct TriMeshRenderWork {
 	f32 max_y;
 
 	Assets *assets;
-	DirectionalLight *light;
+	v3 light_dir;
 	
 	mat4 *bone_transformations;
 	AssetID mesh_id;

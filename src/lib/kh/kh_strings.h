@@ -5,28 +5,22 @@
 // offline preprocessing or something
 
 inline u32
-string_length(char *string)
-{
+string_length(char *string) {
 	u32 count = 0;
-	while(*string++)
-	{
+	while(*string++) {
 		++count;
 	}
 	return(count);
 }
 
 KH_INTERN void
-strings_concat(usize a_length, char *a, usize b_length, char *b, usize dst_length, char *dst)
-{
+strings_concat(usize a_length, char *a, usize b_length, char *b, usize dst_length, char *dst) {
 	kh_assert((a_length + b_length) < dst_length);
 
-	for(u32 ind = 0; ind < a_length;	++ind)
-	{
+	for(u32 ind = 0; ind < a_length; ++ind) {
 		*dst++ = *a++;
 	}
-
-	for(u32 ind = 0; ind < b_length;	++ind)
-	{
+	for(u32 ind = 0; ind < b_length; ++ind)	{
 		*dst++ = *b++;
 	}
 
@@ -34,10 +28,8 @@ strings_concat(usize a_length, char *a, usize b_length, char *b, usize dst_lengt
 }
 
 KH_INTERN void
-strings_concat(usize src_length, char *src, usize dst_length, char *dst)
-{
-	for(u32 ind = 0; ind < (src_length - 1); ++ind)
-	{
+strings_concat(usize src_length, char *src, usize dst_length, char *dst) {
+	for(u32 ind = 0; ind < (src_length - 1); ++ind)	{
 		char *dst_at = dst + dst_length + ind;
 		char *src_at = src + ind;
 		*dst_at = *src_at;
@@ -45,26 +37,19 @@ strings_concat(usize src_length, char *src, usize dst_length, char *dst)
 }
 
 KH_INTERN void
-strings_concat_at_offset(usize offset, usize a_length, char *a, usize b_length, char *b)
-{
+strings_concat_at_offset(usize offset, usize a_length, char *a, usize b_length, char *b) {
 	kh_assert((offset + b_length) < a_length);
-
 	usize end = offset + b_length;
-
 	char *dst = a + offset;
-	for(usize ind = offset; ind < end; ++ind)
-	{
+	for(usize ind = offset; ind < end; ++ind) {
 		*dst++ = *b++;
 	}
-
 	*dst++ = 0;
 }
 
 KH_INTERN void
-strings_copy(usize a_length, char *a, char *dst)
-{
-	for(u32 ind = 0; ind < a_length; ++ind)
-	{
+strings_copy(usize a_length, char *a, char *dst) {
+	for(u32 ind = 0; ind < a_length; ++ind) {
 		dst[ind] = a[ind];
 	}
 	dst[a_length] = 0;
@@ -78,36 +63,30 @@ strings_copy_NNT(usize a_length, char *a, char *dst) {
 }
 
 inline b32
-strings_equals_on_size(u32 size, char *a, char *b)
-{
+strings_equals_on_size(u32 size, char *in_a, char *in_b) {
 	b32 res = true;
-	if(a && b)
-	{
-		for(u32 i = 0; i < size; ++i, ++a, ++b)
-		{
-			if((*a != *b) || !*a || !*b)
-			{
+	if(in_a && in_b) {
+		char *a = in_a; 
+		char *b = in_b;
+		for(u32 i = 0; i < size; ++i, ++a, ++b)	{
+			if((*a != *b) || !*a || !*b) {
 				res = false;
 				break;
 			}
 		}
-	}
-	else
-	{
+	} else {
 		res = false;
 	}
 	return(res);
 }
 
 inline b32
-strings_equals(char *a, char *b)
-{
-	b32 res = (a == b);
-
-	if(a && b)
-	{
-		while(*a && *b && (*a == *b))
-		{
+strings_equals(char *in_a, char *in_b) {
+	b32 res = (in_a == in_b);
+	if(in_a && in_b) {
+		char *a = in_a;
+		char *b = in_b;
+		while(*a && *b && (*a == *b)) {
 			++a;
 			++b;
 		}
@@ -116,13 +95,10 @@ strings_equals(char *a, char *b)
 	return(res);
 }
 
-
-void reverse_string(char *str, u32 length)
-{
+void reverse_string(char *str, u32 length) {
     u32 start = 0;
     u32 end = length -1;
-    while (start < end)
-    {
+    while (start < end)    {
         char *tmp_start = str + start;
         char *tmp_end = str + end;
 
@@ -136,33 +112,28 @@ void reverse_string(char *str, u32 length)
 }
  
 KH_INTERN void
-i32_to_string(int num, char* str, int base = 10)
-{
+i32_to_string(int num, char* str, int base = 10) {
     int i = 0;
     bool is_negative = false;
  
-    if (num == 0)
-    {
+    if (num == 0) {
         str[i++] = '0';
         str[i] = '\0';
         return;
     }
  
-    if (num < 0 && base == 10)
-    {
+    if (num < 0 && base == 10) {
         is_negative = true;
         num = -num;
     }
  
-    while (num != 0)
-    {
+    while (num != 0) {
         int rem = num % base;
         str[i++] = (rem > 9) ? (char)((rem-10) + 'a') : (char)(rem + '0');
         num = num/base;
     }
  
-    if (is_negative)
-        str[i++] = '-';
+    if (is_negative) str[i++] = '-';
  
     str[i] = '\0';
  

@@ -187,7 +187,7 @@ save_to_png_file()
 #define BMP_FILE_SIGNATURE 0x4D42
 
 #pragma pack(push, 1)
-struct bmp_file_header
+struct BMPFileHeader
 {
 	u16 file_type;
 	u32 file_size;
@@ -196,7 +196,7 @@ struct bmp_file_header
 	u32 bitmap_offset;
 };
 
-struct bmp_v3_header
+struct BMPv3Header
 {
 	u32 size;
 	i32 width;
@@ -212,7 +212,7 @@ struct bmp_v3_header
 	u32 colors_imp;
 };
 
-struct bmp_v3_bitfields_masks
+struct BMPv3BitfieldMask
 {
 	u32 red_mask;
 	u32 green_mask;
@@ -223,7 +223,7 @@ struct bmp_v3_bitfields_masks
 KH_INTERN b32
 test_bmp(void *contents)
 {
-	bmp_file_header *file_head = (bmp_file_header *)contents;
+	BMPFileHeader *file_head = (BMPFileHeader *)contents;
 	b32 res = (file_head->file_type == BMP_FILE_SIGNATURE);
 	return(res);
 }
@@ -235,10 +235,10 @@ load_bmp_file(void *contents)
 
 	res.contents = contents;
 
-	bmp_file_header *file_head = (bmp_file_header *)contents;
+	BMPFileHeader *file_head = (BMPFileHeader *)contents;
 	// TODO(flo): how to support other version than v3 windows NT?
-	bmp_v3_header *header = (bmp_v3_header *)((u8 *)contents + sizeof(bmp_file_header));
-	bmp_v3_bitfields_masks *bitfield_masks = (bmp_v3_bitfields_masks *)((u8 *)header + sizeof(bmp_v3_header));
+	BMPv3Header *header = (BMPv3Header *)((u8 *)contents + sizeof(BMPFileHeader));
+	BMPv3BitfieldMask *bitfield_masks = (BMPv3BitfieldMask *)((u8 *)header + sizeof(BMPv3Header));
 
 	u32 *pixels = (u32 *)((u8 *)contents + file_head->bitmap_offset);
 
@@ -307,19 +307,19 @@ load_bmp_file(void *contents)
 
 
 KH_INTERN void
-test_export_to_bmp(char *filename, umm size, i32 w, i32 h, void *ptr, StackAllocator *memstack)
+test_export_to_bmp(char *filename, umm size, i32 w, i32 h, void *ptr, LinearAllocator *memstack)
 {
 	file_handle dst_f = win32_open_file(filename, memstack, FileAccess_write, FileCreation_create_or_open);
 
-	const u32 bmp_size = sizeof(bmp_file_header) + sizeof(bmp_v3_header) + sizeof(bmp_v3_bitfields_masks);
+	const u32 bmp_size = sizeof(BMPFileHeader) + sizeof(BMPv3Header) + sizeof(BMPv3BitfieldMask);
 	umm total_size = size + bmp_size;
 
-	bmp_file_header out_header = {};
+	BMPFileHeader out_header = {};
 	out_header.file_type = BMP_FILE_SIGNATURE;
 	out_header.file_size = (u32)size + 122; //size + 138 ?
 	out_header.bitmap_offset = 122; //138?
 
-	bmp_v3_header out_v3_header = {};
+	BMPv3Header out_v3_header = {};
 	out_v3_header.size = 108; //124
 	out_v3_header.width = w;
 	out_v3_header.height = h;
@@ -330,7 +330,7 @@ test_export_to_bmp(char *filename, umm size, i32 w, i32 h, void *ptr, StackAlloc
 	out_v3_header.hor_resolution = 2835;
 	// out_v3_header.hor_resolution = 2835;
 
-	bmp_v3_bitfields_masks out_mask;
+	BMPv3BitfieldMask out_mask;
 	out_mask.red_mask = 	0x00FF0000;
 	out_mask.green_mask = 	0x0000FF00;
 	out_mask.blue_mask = 	0x000000FF;
@@ -342,10 +342,10 @@ test_export_to_bmp(char *filename, umm size, i32 w, i32 h, void *ptr, StackAlloc
 		pad[i] = 0;
 	}
 
-	win32_write_bytes_to_file(&dst_f, 0, sizeof(bmp_file_header), &out_header);
-	win32_write_bytes_to_file(&dst_f, sizeof(bmp_file_header), sizeof(bmp_v3_header), &out_v3_header);
-	win32_write_bytes_to_file(&dst_f, sizeof(bmp_file_header) + sizeof(bmp_v3_header), 
-	                          sizeof(bmp_v3_bitfields_masks), &out_mask);
+	win32_write_bytes_to_file(&dst_f, 0, sizeof(BMPFileHeader), &out_header);
+	win32_write_bytes_to_file(&dst_f, sizeof(BMPFileHeader), sizeof(BMPv3Header), &out_v3_header);
+	win32_write_bytes_to_file(&dst_f, sizeof(BMPFileHeader) + sizeof(BMPv3Header), 
+	                          sizeof(BMPv3BitfieldMask), &out_mask);
 	win32_write_bytes_to_file(&dst_f, bmp_size, sizeof(pad), &pad);
 	win32_write_bytes_to_file(&dst_f, out_header.bitmap_offset, size, ptr);
 }
@@ -428,7 +428,7 @@ struct indexed_node
 #define MAX_INDEXED_HASH (1 << 14)
 
 static indexed_model
-to_indexed_model(obj_model *obj, StackAllocator *tmp, StackAllocator *mem, u32 interleave)
+to_indexed_model(obj_model *obj, LinearAllocator *tmp, LinearAllocator *mem, u32 interleave)
 {
 	indexed_model res = {};
 
@@ -576,9 +576,9 @@ get_indices_from_tokens(string_tokenizer *tokenizer, obj_model *dst)
 
 
 KH_INTERN triangle_mesh_contents
-load_obj(StackAllocator *memstack, void *contents, u32 interleaved = 0)
+load_obj(LinearAllocator *memstack, void *contents, u32 interleaved = 0)
 {
-	StackAllocator tmp = {};
+	LinearAllocator tmp = {};
 
 	triangle_mesh_contents res = {};
 
