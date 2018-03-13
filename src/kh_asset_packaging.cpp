@@ -423,6 +423,9 @@ init_package() {
 	res.tag_count = 1;
 	res.asset_count = 1;
 	res.asset_type_count = 0;
+	kh_lu0(i, array_count(res.file_hash.hash)) {
+		res.file_hash.hash[i] = 0;
+	}
 	return(res);
 }
 

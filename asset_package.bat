@@ -1,1 +1,2 @@
-build/pack_asset.exe
+@echo off
+start "" build/pack_asset.exe

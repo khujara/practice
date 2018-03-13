@@ -1,1 +1,1 @@
-build/win32_practice.exe
+start "" build/win32_practice.exe
